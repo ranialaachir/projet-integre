@@ -16,7 +16,7 @@ Target environment: **GOAD-Mini** (`sevenkingdoms.local`) — an intentionally v
 
 - Enumerate all users, groups, and computers in the domain
 - Find shortest attack paths from any principal to Domain Admins
-- Map BloodHound edges to concrete exploitation techniques (Kerberoasting, ACL abuse, etc.)
+- Map BloodHound edges to concrete exploitation techniques (Kerberoasting, ACL abuse, Pass-the-Hash, DCSync, GenericWrite, etc.)
 - Rank findings by path length and exploitability
 - Output structured, readable reports
 
@@ -63,7 +63,7 @@ bloodhound-python \
   -u 'vagrant' -p 'vagrant' \
   -dc kingslanding.sevenkingdoms.local \
   -ns 192.168.56.10 \
-  -c All --zip --dns-tcp -w 1
+  -c All --zip
 ```
 Then upload the zip via the BloodHound CE UI → File Ingest.
 
@@ -76,7 +76,7 @@ Copy `.env.example` to `.env` and fill in your values:
 ```env
 BLOODHOUND_TOKEN_ID=your_token_id_here
 BLOODHOUND_TOKEN_KEY=your_token_key_here
-BLOODHOUND_URL=http://localhost:8080
+BLOODHOUND_URL=http://<SERVER_IP>:8083
 ```
 
 To generate a token: BloodHound UI → top right menu → **API Tokens** → Create Token.
@@ -87,28 +87,53 @@ To generate a token: BloodHound UI → top right menu → **API Tokens** → Cre
 
 ```
 bloodhound-auto/
-├── core/
-│   ├── entities/
-│   │   ├── __init__.py
-│   │   └── bh_client.py      # BHClient — stores credentials and URL
-│   ├── utils/
-│   │   ├── __init__.py
-│   │   ├── bh_auth.py         # BHAuth — HMAC signing logic
-│   │   └── bh_request.py      # BHRequest — get, post, delete methods
-│   └── models/
-│       ├── __init__.py
-│       └── graph.py           # Node, Edge, Path dataclasses
-├── modules/
-│   ├── enumeration.py         # Find users, groups, computers
-│   ├── pathfinding.py         # Shortest paths, attack path analysis
-│   └── reporting.py           # Output and formatting
+├── entities/
+│   ├── __init__.py
+│   ├── client.py          # BHClient — stores credentials and base URL
+│   ├── edge.py            # Edge dataclass — relationship between two nodes
+│   ├── node.py            # Node dataclass — AD principal (user, group, computer)
+│   └── path.py            # Path dataclass — ordered sequence of nodes and edges
+├── exceptions/
+│   ├── __init__.py
+│   ├── auto_pwn_exception.py  # Base exception for the tool
+│   ├── hop_failed_error.py    # Raised when a single hop in a path cannot be exploited
+│   └── no_path_error.py       # Raised when no attack path exists to a target
+├── services/
+│   ├── __init__.py
+│   ├── enumeration.py     # Find users, groups, computers in the domain
+│   ├── pathfinding.py     # Shortest paths and attack path analysis
+│   └── reporting.py       # Output formatting and structured findings
+├── strategies/
+│   ├── __init__.py
+│   ├── exploit_strategy.py    # Abstract base class for all exploit strategies
+│   ├── dc_sync.py             # DCSync rights exploitation
+│   ├── generic_write.py       # GenericWrite ACL abuse
+│   ├── kerberoast.py          # Kerberoastable service account targeting
+│   └── pass_the_hash.py       # Pass-the-Hash lateral movement
+├── utils/
+│   ├── __init__.py
+│   ├── auth.py            # BHAuth — HMAC request signing logic
+│   └── request.py         # BHRequest — get, post, delete HTTP methods
 ├── main.py
-├── .env                       # Your secrets (never committed)
-├── .env.example               # Template for others
+├── .env                   # Your secrets (never committed)
+├── .env.example           # Template for others
 ├── .gitignore
 ├── requirements.txt
 └── README.md
 ```
+
+---
+
+## Architecture Overview
+
+The codebase is organized around four layers:
+
+- **`entities/`** — core data models (`Node`, `Edge`, `Path`) and the API client wrapper
+- **`services/`** — high-level logic: enumeration, pathfinding, and reporting
+- **`strategies/`** — pluggable exploit strategies, each mapping a BloodHound edge type to a concrete attack technique
+- **`utils/`** — low-level HTTP and authentication helpers (HMAC signing, raw requests)
+
+Exceptions are centralized under `exceptions/` to allow services and strategies to signal failure conditions cleanly without returning sentinel values.
 
 ---
 
@@ -121,7 +146,7 @@ When using `POST /api/v2/graphs/cypher`, the response splits into three buckets:
 ```python
 data["data"] = {
     "nodes":    [...],   # RETURN n          → full node objects
-    "edges":    [...],   # RETURN r          → relationship objects  
+    "edges":    [...],   # RETURN r          → relationship objects
     "literals": [...]    # RETURN n.name     → scalar property values
 }
 ```
