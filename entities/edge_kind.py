@@ -1,8 +1,8 @@
-# entities/edge_type.py
+# entities/edge_kind.py
 
 from enum import Enum
 
-class EdgeType(Enum):
+class EdgeKind(Enum):
 	MEMBER_OF = "MemberOf"
 	HAS_SESSION = "HasSession"
 	ADMIN_TO = "AdminTo"

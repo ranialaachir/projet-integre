@@ -2,8 +2,9 @@
 
 from enum import Enum
 
-class NodeLabel(Enum):
+class NodeKind(Enum):
 	COMPUTER = "Computer"
+	CONTAINER = "Container"
 	DOMAIN = "Domain"
 	GPO = "GPO"
 	GROUP = "Group"

@@ -5,7 +5,7 @@ import json
 import hashlib
 
 def bh_get(client:Client, path:str) -> dict:
-	headers = bh_auth.make_auth_header(client._token_id, client._token_key,
+	headers = auth.make_auth_header(client._token_id, client._token_key,
 					  "GET", path)
 	print("Headers being sent :")
 	for k, v in headers.items():
@@ -26,7 +26,7 @@ def bh_get(client:Client, path:str) -> dict:
 
 def bh_post(client:Client, path:str, body:dict) -> dict:
 	body_bytes = json.dumps(body).encode("utf-8")
-	headers = bh_auth.make_auth_header(client._token_id, client._token_key,
+	headers = auth.make_auth_header(client._token_id, client._token_key,
 					  "POST", path, body_bytes)
 	print("Headers being sent :")
 	for k, v in headers.items():
