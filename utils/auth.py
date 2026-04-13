@@ -1,3 +1,5 @@
+# utils/auth.py
+
 from datetime import datetime, timezone
 import hmac
 import hashlib
