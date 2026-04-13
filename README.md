@@ -30,6 +30,7 @@ Target environment: **GOAD-Mini** (`sevenkingdoms.local`) — an intentionally v
 ## Requirements
 
 - Python 3.10+
+- Libraries : rich, requests
 - BloodHound CE v8.7+ (Kali package or Docker)
 - Neo4j running and populated with AD data
 - A BloodHound API token (token ID + token key)
@@ -46,7 +47,7 @@ pip install -r requirements.txt
 **1. Clone the repo**
 ```bash
 git clone https://github.com/ranialaachir/projet-integre.git
-cd bloodhound-auto
+cd projet-integre
 ```
 
 **2. Create your `.env` file** (never committed)
