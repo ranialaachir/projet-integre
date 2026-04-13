@@ -101,6 +101,7 @@ bloodhound-auto/
 │   ├── __init__.py
 │   ├── enumeration.py     # Find users, groups, computers in the domain
 │   ├── pathfinding.py     # Shortest paths and attack path analysis
+│   ├── scoring.py         # Scoring / prioritization (scorer chaque finding par criticité)
 │   └── reporting.py       # Output formatting and structured findings
 ├── strategies/
 │   ├── __init__.py
