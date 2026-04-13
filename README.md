@@ -92,7 +92,8 @@ bloodhound-auto/
 │   ├── client.py          # BHClient — stores credentials and base URL
 │   ├── edge.py            # Edge dataclass — relationship between two nodes
 │   ├── node.py            # Node dataclass — AD principal (user, group, computer)
-│   └── path.py            # Path dataclass — ordered sequence of nodes and edges
+│   ├── path.py            # Path dataclass — ordered sequence of nodes and edges
+│   └── exploit_result.py  # Structured output from any exploit strategy
 ├── exceptions/
 │   ├── __init__.py
 │   ├── auto_pwn_exception.py  # Base exception for the tool
