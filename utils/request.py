@@ -11,7 +11,7 @@ class BHRequest:
 		self.client = client
 
 	def bh_get(self, path:str) -> dict:
-		   headers = bh_auth.make_auth_header(self.client._token_id, self.client._token_key,
+		   headers = auth.make_auth_header(self.client._token_id, self.client._token_key,
 		                   		      "GET", path)
 		print("Headers being sent :")
 		for k, v in headers.items():
@@ -32,7 +32,7 @@ class BHRequest:
 
 	def bh_post(self, path:str, body:dict) -> dict:
 		body_bytes = json.dumps(body).encode("utf-8")
-		headers = bh_auth.make_auth_header(self.client._token_id, self.client._token_key,
+		headers = auth.make_auth_header(self.client._token_id, self.client._token_key,
 						  "POST", path, body_bytes)
 		print("Headers being sent :")
 		for k, v in headers.items():

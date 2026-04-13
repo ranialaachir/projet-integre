@@ -13,5 +13,5 @@ class NoPathError(AutoPwnException):
 		self.goal_node = goal_node
 		super().__init__(
 			f"Finding Path Failed "
-			f"No Path ({start_node.name} --> {goal_node.name})"
+			f"No Path ({start_node.label} --> {goal_node.label})"
 		)

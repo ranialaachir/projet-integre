@@ -3,9 +3,9 @@
 from .node import Node
 from .edge import Edge
 
-class path:
-	def __init__(self, start_node:Node, goal_node:Node, edges: list[Edge]):
-		self.start_node = start_node
+class Path:
+	def __init__(self, source_node:Node, goal_node:Node, edges: list[Edge]):
+		self.source_node = source_node
 		self.goal_node = goal_node
 		self.edges = edges
 
