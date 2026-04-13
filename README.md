@@ -24,7 +24,6 @@ Target environment: **GOAD-Mini** (`sevenkingdoms.local`) — an intentionally v
 
 - It is not a collector — use `bloodhound-python` or `SharpHound` for data collection
 - It is not a replacement for the BloodHound UI
-- It is not an active exploitation tool — analysis and path finding only
 
 ---
 
@@ -46,7 +45,7 @@ pip install -r requirements.txt
 
 **1. Clone the repo**
 ```bash
-git clone https://github.com/yourname/bloodhound-auto.git
+git clone https://github.com/ranialaachir/projet-integre.git
 cd bloodhound-auto
 ```
 
