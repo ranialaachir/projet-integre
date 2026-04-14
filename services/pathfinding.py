@@ -5,6 +5,7 @@ from exceptions.no_path_error import NoPathError
 from entities.path import Path
 from entities.node import Node
 from entities.edge import Edge
+from .parse_objects import parse_path
 
 def get_path(bh_request:BHRequest, source_node, goal_node) -> Path:
 	"""
@@ -28,29 +29,7 @@ def get_path(bh_request:BHRequest, source_node, goal_node) -> Path:
 	if data is None:
 		raise NoPathError(source_node, goal_node)
 
-	return extract_path(source_node, goal_node, data["data"])
-
-def extract_path(source_node:Node, goal_node:Node, data:dict) -> Path:
-	nodes_data = data["nodes"]
-	nodes = {}
-	for k, node_data in nodes_data.items():
-		nodes[k] = Node(node_data["objectId"],
-				node_data["kind"],
-				node_data["label"],
-				node_data["properties"]
-			       )
-	# Choose later on what to choose in properties
-	edges_data = data["edges"]
-	edges = []
-	for edge_data in edges_data:
-		edges.append(Edge(nodes[edge_data["source"]],
-				  nodes[edge_data["target"]],
-				  edge_data["kind"]
-				 )
-			     )
-	# print(source_node.properties.keys())
-	return Path(source_node, goal_node, edges)
-
+	return parse_path(source_node, goal_node, data["data"])
 # shortest path User --> Group 'Domain Admins'
 # data["data"]:dict --> ['node_keys', 'edge_keys', 'edges', 'nodes', 'literals']
 # node_keys: list --> ['admincount', 'blocksinheritance', 'description', 'displayname', 'distinguishedname', 'domain', 'domainsid', 'dontreqpreauth', 'enabled', 'functionallevel', 'haslaps', 'hasspn', 'highvalue', 'lastcollected', 'lastlogon', 'lastlogontimestamp', 'lastseen', 'name', 'objectid', 'operatingsystem', 'operatingsystemname', 'operatingsystemversion', 'ownersid', 'passwordnotreqd', 'pwdlastset', 'pwdneverexpires', 'samaccountname', 'sensitive', 'serviceprincipalnames', 'sidhistory', 'system_tags', 'trustedtoauth', 'unconstraineddelegation', 'vulnerablenetlogonsecuritydescriptorcollected', 'whencreated']
