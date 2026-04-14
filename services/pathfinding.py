@@ -48,6 +48,7 @@ def extract_path(source_node:Node, goal_node:Node, data:dict) -> Path:
 				  edge_data["kind"]
 				 )
 			     )
+	# print(source_node.properties.keys())
 	return Path(source_node, goal_node, edges)
 
 # shortest path User --> Group 'Domain Admins'
