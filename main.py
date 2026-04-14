@@ -228,7 +228,7 @@ else:
                             result = strategy.exploit(creds)
                             if result.success:
                                 print_done(f"Exploit succeeded! Technique: {result.technique}")
-                                print_check(f"Output:\n{result.output}")
+                                print_check(f"Output:\n{result.summary}")
                             else:
                                 print_warning(f"Exploit returned success=False:\n{result.output}")
                         except HopFailedError as e:
