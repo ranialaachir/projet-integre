@@ -18,13 +18,13 @@ console = Console()
 # ─── Color maps ───────────────────────────────────────────────────────────────
 
 NODE_COLORS: dict[NodeKind, str] = {
-    NodeKind.USER:      "cyan",
-    NodeKind.GROUP:     "bright_blue",
-    NodeKind.COMPUTER:  "yellow",
-    NodeKind.DOMAIN:    "bright_red",
-    NodeKind.GPO:       "magenta",
-    NodeKind.OU:        "green",
-    NodeKind.CONTAINER: "dim white",
+    NodeKind.USER:      "#17E625",
+    NodeKind.OU:        "#FFAA00",
+    NodeKind.GROUP:     "#DBE617",
+    NodeKind.GPO:       "#776FC2",
+    NodeKind.DOMAIN:    "#17E6B9",
+    NodeKind.CONTAINER: "#F79A78",
+    NodeKind.COMPUTER:  "#E67873",
 }
 
 EDGE_META: dict[EdgeKind, dict] = {
