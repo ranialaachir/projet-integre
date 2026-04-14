@@ -4,10 +4,9 @@ from utils.request import BHRequest
 from exceptions.no_path_error import NoPathError
 from entities.path import Path
 from entities.node import Node
-from entities.edge import Edge
 from .parse_objects import parse_path
 
-def get_path(bh_request:BHRequest, source_node, goal_node) -> Path:
+def get_path(bh_request:BHRequest, source_node:Node, goal_node:Node) -> Path:
 	"""
 	This function returns a dict of :
 	node_keys : list : ['admincount', 'blocksinheritance', 'description', 'displayname', 'distinguishedname', 'domain', 'domainsid', 'dontreqpreauth', 'enabled', 'functionallevel', 'haslaps', 'hasspn', 'highvalue', 'lastcollected', 'lastlogon', 'lastlogontimestamp', 'lastseen', 'name', 'objectid', 'operatingsystem', 'operatingsystemname', 'operatingsystemversion', 'ownersid', 'passwordnotreqd', 'pwdlastset', 'pwdneverexpires', 'samaccountname', 'sensitive', 'serviceprincipalnames', 'sidhistory', 'system_tags', 'trustedtoauth', 'unconstraineddelegation', 'vulnerablenetlogonsecuritydescriptorcollected', 'whencreated']

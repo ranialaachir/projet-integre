@@ -14,6 +14,7 @@ from entities.edge_kind import EdgeKind
 
 console = Console()
 
+# TODO: Divide Formatting and Reporting
 
 # ─── Color maps ───────────────────────────────────────────────────────────────
 
@@ -41,6 +42,9 @@ EDGE_META: dict[EdgeKind, dict] = {
     EdgeKind.KERBEROASTABLE:     {"color": "bright_magenta", "icon": "⚡", "label": "Kerberoast → crack hash offline"},
     EdgeKind.ALLOWED_TO_DELEGATE:{"color": "magenta",        "icon": "⇒", "label": "AllowedToDelegate → usurpation"},
     EdgeKind.OWNS:               {"color": "bright_red",     "icon": "⚑", "label": "Owns → propriétaire de l'objet"},
+    EdgeKind.ADD_MEMBER:    {"color": "bright_yellow", "icon": "✎", "label": "AddMember → add to group"},
+    EdgeKind.COERCE_TO_TGT: {"color": "bright_red",    "icon": "⚡", "label": "CoerceToTGT → force TGT"},
+    EdgeKind.CONTAINS:      {"color": "dim",            "icon": "⊃", "label": "Contains → OU contains"},
 }
 
 DEFAULT_NODE_COLOR = "white"
@@ -62,6 +66,9 @@ EDGE_SEVERITY: dict[EdgeKind, int] = { # FUNCTION IN SCORING.PY
     EdgeKind.GET_CHANGES: 8,
     EdgeKind.GET_CHANGES_ALL: 9,
     EdgeKind.DCSYNC: 10,
+    EdgeKind.ADD_MEMBER:    6,
+    EdgeKind.COERCE_TO_TGT: 8,
+    EdgeKind.CONTAINS:      1,
 }
 
 # ─── Helpers internes ─────────────────────────────────────────────────────────
@@ -88,8 +95,9 @@ def format_node(node: Node) -> Text:
     label_str  = node.kind.value  # "User", "Group", etc.
 
     t = Text()
-    t.append(f"[{label_str}]", style=f"bold {color}")
-    t.append(f" {node.label}",  style=color)
+    t.append(f"\n[{label_str}]", style=f"bold {color}")
+    t.append(f" {node.objectid}",  style=color)
+    t.append(f" - {node.label}",  style=color)
     return t
 
 def format_edge(edge: Edge) -> Text:
@@ -104,7 +112,7 @@ def format_edge(edge: Edge) -> Text:
     kind_str  = edge.kind.value   # "HasSPNConfigured", "DCSync", etc.
 
     t = Text()
-    t.append(f"  {icon} ", style=color)
+    t.append(f"\n  {icon} ", style=color)
     t.append(f"──[{kind_str}]──▶ ", style=f"bold {color}")
     t.append(f"({label})",          style=f"italic {color}")
     return t
@@ -142,6 +150,33 @@ def format_path(path: Path, index: int = 1) -> Panel:
             content.append("\n")
 
     return Panel(content, border_style=border_color, padding=(0, 2))
+
+
+# ─── Rapport complet ──────────────────────────────────────────────────────────
+def _print_element(symbol:chr, text:str, color:str="white") -> None:
+    content = Text()
+    content.append(f"\n[{symbol}] {text}", style=color)
+    console.print(content)
+
+def print_title(title:str) -> None:
+    print("\n")
+    console.rule(f"[bold blue]\n[*] {title}...[/]")
+    print("\n")
+
+def print_error(error:str) -> None:
+    _print_element('-',error,'bold red')
+
+def print_warning(warning:str) -> None:
+    _print_element('-',warning,'yellow')
+
+def print_check(check:str) -> None:
+    _print_element('+',check,'green')
+
+def print_done(done:str) -> None:
+    _print_element('✓',done,'green')
+
+def print_node(node:Node) -> None:
+    console.print(format_node(node))
 
 
 # ─── Rapport complet ──────────────────────────────────────────────────────────

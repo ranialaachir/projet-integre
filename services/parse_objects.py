@@ -18,7 +18,7 @@ def parse_node(n: dict) -> Node | None:
         objectid   = n.get("objectId", ""),
         kind       = kind,
         label      = n.get("label", "Unknown"),
-        properties = n.get("properties", {}),
+        properties = n.get("properties", {}), # TODO: Choose later on what to choose in properties
     )
 
 def parse_edge(e: dict) -> Edge | None:
@@ -29,8 +29,8 @@ def parse_edge(e: dict) -> Edge | None:
         print(f"  [!] Edge Kind is Unknown : {e.get('kind')}")
         return None
 
-    source = e.get(e.get("source"))
-    target = e.get(e.get("target"))
+    source = e.get("source")
+    target = e.get("target")
 
     if source is None or target is None:
         print(f"  [!] Target or Source Node are Empty")
@@ -38,24 +38,44 @@ def parse_edge(e: dict) -> Edge | None:
 
     return Edge(source_node=source, goal_node=target, kind=kind)
 
-def parse_path(source_node:Node, goal_node:Node, data:dict) -> Path:
-	nodes_data = data["nodes"]
+def parse_path(source_node: Node, goal_node: Node, data: dict) -> Path:
+    nodes_data = data["nodes"]
+    nodes: dict[str, Node] = {}
+    for k, node_data in nodes_data.items():
+        parsed = parse_node(node_data)
+        if parsed is not None:
+            nodes[k] = parsed
+
+    edges_data = data["edges"]
+    edges: list[Edge] = []
+    for edge_data in edges_data:
+        try:
+            kind = EdgeKind(edge_data.get("kind", ""))
+        except ValueError:
+            print(f"  [!] Edge Kind is Unknown : {edge_data.get('kind')}")
+            continue  # skip unknown edges instead of appending None
+
+        src = nodes.get(edge_data["source"])
+        tgt = nodes.get(edge_data["target"])
+
+        if src is None or tgt is None:
+            print(f"  [!] Could not resolve nodes for edge {edge_data.get('kind')}")
+            continue
+
+        edges.append(Edge(source_node=src, goal_node=tgt, kind=kind))
+
+    return Path(source_node, goal_node, edges)
+
+def parse_path_1(source_node:Node, goal_node:Node, data:dict) -> Path:
+	nodes_data = data.get("nodes", {})
 	nodes = {}
 	for k, node_data in nodes_data.items():
-		nodes[k] = Node(node_data["objectId"],
-				node_data["kind"],
-				node_data["label"],
-				node_data["properties"]
-			       )
-	# Choose later on what to choose in properties
-	edges_data = data["edges"]
+		nodes[k] = parse_node(node_data)
+	
+	edges_data = data.get("edges", {})
 	edges = []
 	for edge_data in edges_data:
-		edges.append(Edge(nodes[edge_data["source"]],
-				  nodes[edge_data["target"]],
-				  edge_data["kind"]
-				 )
-			     )
+		edges.append(parse_edge(edge_data))
 	return Path(source_node, goal_node, edges)
 
 # shortest path User --> Group 'Domain Admins'

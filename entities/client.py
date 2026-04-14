@@ -10,5 +10,5 @@ class Client:
 
 	def check_credentials(self):
 		if not all([self._token_id, self._token_key, self.base_url]):
-			print("Error! Missing Environment Variables!")
+			print("[-] Missing Environment Variables!")
 			sys.exit(1)
