@@ -1,14 +1,13 @@
 # utils/cred_store.py
 
-KNOWN_HASHES = {
+KNOWN_HASHES = { # Later on, it will be filled by user and automatically
     "lord.varys":        ":52ff2a79823d81d6a3f4f8261d7acc59",
     "administrator":     ":c66d72021a2d4744409969a581a1705e",
     "krbtgt":            ":50687f0656d56c91897cf952306a00b8",
     "tywin.lannister":   ":af52e9ec3471788111a6308abff2e9b7",
-    # ... add others as needed
 }
 
-KNOWN_PASSWORDS = {
+KNOWN_PASSWORDS = { # Later on, it will be filled by user and automatically
     "cersei.lannister":  "il0vejaime",
     "robert.baratheon":  "iamthekingoftheworld",
     "petyr.baelish":     "@littlefinger@",

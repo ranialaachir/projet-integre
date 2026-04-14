@@ -16,19 +16,26 @@ from services.printing import print_check, print_done, print_error, print_warnin
 from services.reporting import *
 from services.parse_objects import parse_node
 
-
 load_dotenv()
 
 # ─── 1. Load credentials ────────────────────────────────────────────────────
 
-TOKEN_ID  = os.getenv("BLOODHOUND_TOKEN_ID")
+TOKEN_ID = os.getenv("BLOODHOUND_TOKEN_ID")
 TOKEN_KEY = os.getenv("BLOODHOUND_TOKEN_KEY")
-BH_URL    = os.getenv("BLOODHOUND_URL", "http://127.0.0.1:8080")
+BH_URL = os.getenv("BLOODHOUND_URL", "http://127.0.0.1:8080")
 
-client = Client(TOKEN_ID, TOKEN_KEY, BH_URL)
-bh = BHRequest(client)
-client.check_credentials()
-print_check(f"Credentials loaded — connecting to {BH_URL}")
+try:
+    client = Client(TOKEN_ID, TOKEN_KEY, BH_URL)
+    bh = BHRequest(client)
+
+    print_check(f"Credentials loaded — connecting to {BH_URL}")
+
+except ValueError as e:
+    print_error(f"{e}")
+    sys.exit(1)
+except Exception as e:
+    print_error(f"Unexpected error while initializing client: {e}")
+    sys.exit(1)
 
 # ─── 2. Connectivity check ───────────────────────────────────────────────────
 
