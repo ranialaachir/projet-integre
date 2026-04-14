@@ -43,8 +43,12 @@ EDGE_META: dict[EdgeKind, dict] = {
     EdgeKind.OWNS:               {"color": "bright_red",     "icon": "⚑", "label": "Owns → propriétaire de l'objet"},
 }
 
-# Criticité pour trier (plus haut = plus critique)
-EDGE_SEVERITY: dict[EdgeKind, int] = {
+DEFAULT_NODE_COLOR = "white"
+DEFAULT_EDGE_META  = {"color": "white", "icon": "→", "label": "edge inconnu"}
+
+
+# TODO : Criticité pour trier (plus haut = plus critique)
+EDGE_SEVERITY: dict[EdgeKind, int] = { # FUNCTION IN SCORING.PY
     EdgeKind.MEMBER_OF: 1,
     EdgeKind.HAS_SESSION: 2,
     EdgeKind.ALLOWED_TO_DELEGATE: 3,
@@ -60,26 +64,9 @@ EDGE_SEVERITY: dict[EdgeKind, int] = {
     EdgeKind.DCSYNC: 10,
 }
 
-DEFAULT_NODE_COLOR = "white"
-DEFAULT_EDGE_META  = {"color": "white", "icon": "→", "label": "edge inconnu"}
-
-
 # ─── Helpers internes ─────────────────────────────────────────────────────────
 
-def _node_sequence(path: Path) -> list[Node]:
-    """
-    Reconstruit la liste ordonnée des nœuds à partir des edges.
-    Path n'a pas de liste nodes[] — on l'extrait des edges.
-    """
-    if not path.edges:
-        return [path.source_node, path.goal_node]
-
-    nodes: list[Node] = [path.edges[0].source_node]
-    for edge in path.edges:
-        nodes.append(edge.goal_node)
-    return nodes
-
-
+# TODO : Add to scoring
 def _worst_edge(path: Path) -> Edge | None:
     """Retourne l'edge la plus critique du path (selon EDGE_SEVERITY)."""
     if not path.edges:
@@ -105,7 +92,6 @@ def format_node(node: Node) -> Text:
     t.append(f" {node.label}",  style=color)
     return t
 
-
 def format_edge(edge: Edge) -> Text:
     """
     Retourne :    ⚡ ──[HasSPNConfigured]──▶  (Kerberoast → crack hash offline)
@@ -123,7 +109,6 @@ def format_edge(edge: Edge) -> Text:
     t.append(f"({label})",          style=f"italic {color}")
     return t
 
-
 def format_path(path: Path, index: int = 1) -> Panel:
     """
     Formate un Path complet comme un Panel rich.
@@ -133,6 +118,7 @@ def format_path(path: Path, index: int = 1) -> Panel:
     severity = EDGE_SEVERITY.get(worst.kind, 0) if worst else 0
 
     # Couleur de la bordure selon la criticité du pire edge
+    # TODO : Change after Scoring
     if severity >= 8:
         border_color = "bold red"
     elif severity >= 5:
@@ -144,7 +130,8 @@ def format_path(path: Path, index: int = 1) -> Panel:
     content.append(f"Path #{index}", style="bold white")
     content.append(f"  —  {path.length} hop(s)\n\n", style="dim")
 
-    nodes = _node_sequence(path)
+    # nodes = _node_sequence(path)
+    nodes = path.node_sequence()
 
     for i, node in enumerate(nodes):
         content.append_text(format_node(node))
@@ -159,7 +146,7 @@ def format_path(path: Path, index: int = 1) -> Panel:
 
 # ─── Rapport complet ──────────────────────────────────────────────────────────
 
-def print_report(paths: list[Path], domain: str = "SEVENKINGDOMS.LOCAL") -> None:
+def print_report(paths: list[Path], domain: str = "SEVENKINGDOMS.LOCAL") -> None: # TODO : delete default
     """
     Point d'entrée principal.
     Affiche : en-tête → tableau récap → détail Panel par Panel.
