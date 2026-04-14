@@ -11,6 +11,6 @@ class HopFailedError(AutoPwnException):
 		self.edge = edge                    # which hop failed
 		self.reason = reason                # why it failed
 		super().__init__(
-			f"Hop failed on edge '{edge.kind}' "
+			f"Hop failed on edge '{edge.kind.value}' "
 			f"({edge.source_node.label} --> {edge.goal_node.label}): {reason}"
 		)

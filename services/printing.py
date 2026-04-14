@@ -12,9 +12,9 @@ def _print_element(symbol:chr, text:str, color:str="white") -> None:
     console.print(content)
 
 def print_title(title:str) -> None:
-    print("\n")
+    console.print("\n")
     console.rule(f"[bold blue]\n[*] {title}...[/]")
-    print("\n")
+    console.print("\n")
 
 def print_error(error:str) -> None:
     _print_element('-',error,'bold red')

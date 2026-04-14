@@ -19,6 +19,12 @@ class EdgeKind(Enum):
 	OWNS                = "Owns"
 	COERCE_TO_TGT       = "CoerceToTGT"
 	CONTAINS            = "Contains"
+	CAN_RDP_TO          = "CanRDPTo"        #
+	CAN_PS_REMOTE_TO    = "CanPSRemoteTo"
+	ALLOWED_TO_ACT      = "AllowedToAct"     # RBCD
+	TRUSTED_BY          = "TrustedBy"
+	FORCE_CHANGE_PW     = "ForceChangePassword"
+	READ_LAPS_PASS      = "ReadLAPSPassword"
 
 """
 https://www.reddit.com/r/Pentesting/comments/1rfkaum/bloodhound_edges_common_vs_rare_encounters_as_a/

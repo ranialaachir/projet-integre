@@ -15,6 +15,7 @@ from exceptions.auto_pwn_exception import AutoPwnException
 from services.printing import print_check, print_done, print_error, print_warning, print_title, print_node
 from services.reporting import *
 from services.parse_objects import parse_node
+from exceptions.config_error import ConfigError
 
 load_dotenv()
 
@@ -30,7 +31,7 @@ try:
 
     print_check(f"Credentials loaded — connecting to {BH_URL}")
 
-except ValueError as e:
+except ConfigError as e:
     print_error(f"{e}")
     sys.exit(1)
 except Exception as e:
@@ -233,9 +234,12 @@ else:
                         try:
                             from exceptions.hop_failed_error import HopFailedError
                             result = strategy.exploit(creds)
-                            if result.success:
+                            if result.was_executed():
                                 print_done(f"Exploit succeeded! Technique: {result.technique}")
-                                print_check(f"Output:\n{result.summary}")
+                                print_check(f"Output:\n{result.summary()}")
+                                result.print_next_steps()
+                            elif result.is_dry_run():
+                                 print_warning(f"Exploit returned success=None:\n{result.output}")
                             else:
                                 print_warning(f"Exploit returned success=False:\n{result.output}")
                         except HopFailedError as e:

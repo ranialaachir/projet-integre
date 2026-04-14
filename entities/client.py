@@ -1,6 +1,7 @@
 # entities/client.py
 
 from dataclasses import dataclass, field
+from exceptions.config_error import ConfigError
 
 @dataclass
 class Client:
@@ -12,15 +13,13 @@ class Client:
     _sensitive_fields: list[str] = field(default_factory=lambda: ["_token_key"], repr=False)
 
     def check_credentials(self) -> bool:
-        missing = [
-            name for name, val in {
-                "token_id":  self._token_id,
-                "token_key": self._token_key,
-                "base_url":  self.base_url,
-            }.items() if not val
-        ]
-        if missing:
-            raise ValueError(f"Missing BloodHound credentials: {missing}")
+        for name, val in {
+            "token_id":  self._token_id,
+            "token_key": self._token_key,
+            "base_url":  self.base_url,
+        }.items():
+            if not val:
+                raise ConfigError(field=name, reason="must not be empty")
         return True
 
     def __post_init__(self):

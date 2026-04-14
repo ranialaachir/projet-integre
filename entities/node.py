@@ -9,7 +9,7 @@ class Node:
 	objectid: str
 	kind: NodeKind
 	label: str
-	properties: dict[str, Any] = field(default_factory=dict)
+	properties: dict[str, Any] = field(default_factory=dict) # VF : choose which attributes to store here
 
 	def __post_init__(self):
 		if not self.label:

@@ -15,7 +15,7 @@ def get_path(bh_request:BHRequest, source_node:Node, goal_node:Node) -> Path:
 	nodes['36'].keys() : ['label', 'kind', 'kinds', 'objectId', 'isTierZero', 'isOwnedObject', 'lastSeen', 'properties']
 	edges : list[dict] : {'source': '36', 'target': '96', 'label': 'MemberOf', 'kind': 'MemberOf', 'lastSeen': '2026-04-12T20:15:59.535264186Z', 'properties': {'isacl': False, 'isprimarygroup': False, 'lastseen': '2026-04-12T20:15:59.535264186Z'}}
 	"""
-	query = (
+	query = ( #$src_id, $tgt_id with parameters
 	    f"MATCH p = shortestPath((n:{source_node.kind.value}) -[*1..10]-> (m:{goal_node.kind.value})) "
 	    f"WHERE n.objectid = '{source_node.objectid}' "
 	    f"AND m.objectid = '{goal_node.objectid}' RETURN p"
