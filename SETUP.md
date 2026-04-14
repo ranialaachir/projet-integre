@@ -6,6 +6,8 @@
 3. In WSL : `ppipx install bloodyAD && pipx ensurepath`
 3. Verify after a new Session : `wsl bloodyAD --help`
 4. Check in the powershell : `wsl bash -lc "which bloodyAD"`
+5. `wsl sudo apt install -y samba-common-bin`
+6. `route add 192.168.56.0 mask 255.255.255.0 10.234.82.115 -p`
 
 ### Linux (1 personne)
 1. `pip install bloodyAD`

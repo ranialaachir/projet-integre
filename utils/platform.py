@@ -15,7 +15,7 @@ class Backend:
 def detect_backend() -> Backend:
     # ── Linux / Mac : bloodyAD natif ─────────────────────────────────────────
     if shutil.which("bloodyAD"):
-        return Backend(name="bloodyad", prefix=[])
+        return Backend(name="bloodyad", prefix=["bloodyAD"])
 
     # ── Windows : cherche via WSL avec shell login ────────────────────────────
     if sys.platform == "win32" and shutil.which("wsl"):

