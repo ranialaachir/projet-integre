@@ -104,6 +104,7 @@ bloodhound-auto/
 │   ├── enumeration.py     # Find users, groups, computers in the domain
 │   ├── pathfinding.py     # Shortest paths and attack path analysis
 │   ├── scoring.py         # Scoring / prioritization (scorer chaque finding par criticité)
+│   ├── parse_objects.py   # Extract nodes, edges and paths from JSON data
 │   └── reporting.py       # Output formatting and structured findings
 ├── strategies/
 │   ├── __init__.py
