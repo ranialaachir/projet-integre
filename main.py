@@ -145,14 +145,14 @@ if not path_found:
 
 print_done("All checks complete.")
 
-# ─── 8. Find & exploit a GenericWrite edge ───────────────────────────────────
+# ─── 8. Find & exploit a GenericAll edge ───────────────────────────────────
 
 from entities.edge_kind import EdgeKind
 from entities.edge import Edge
 from utils.platform import BACKEND
-from strategies.generic_write import GenericWriteStrategy
+from strategies.generic_all import GenericAllStrategy
 
-print_title("Step 7 — Testing GenericWrite exploit")
+print_title("Step 7 — Testing GenericAll exploit")
 
 # ── 8a. Détecter le backend ───────────────────────────────────────────────────
 
@@ -162,11 +162,11 @@ if BACKEND.name == "none":
     print_warning("Skipping exploit test.")
 else:
 
-    # ── 8b. Chercher un edge GenericWrite dans Neo4j ──────────────────────────
+    # ── 8b. Chercher un edge GenericAll dans Neo4j ──────────────────────────
 
-    gw_result = bh.bh_post("/api/v2/graphs/cypher", {
+    gw_result = bh.bh_post("/api/v2/graphs/cypher", { # GenericWrite
         "query": """
-            MATCH (src)-[r:GenericWrite|GenericAll]->(dst)
+            MATCH (src)-[r:GenericAll]->(dst)
             WHERE src.enabled = true
             RETURN src, r, dst
             LIMIT 1
@@ -178,7 +178,7 @@ else:
     gw_edges = gw_result.get("data", {}).get("edges", []) if gw_result else []
 
     if not gw_edges:
-        print_warning("No GenericWrite/GenericAll edge found in the graph.")
+        print_warning("No GenericAll edge found in the graph.") # /GenericWrite
     else:
         raw_edge = gw_edges[0]
         print_check(f"Found edge: {raw_edge['label']} — {raw_edge['source']} → {raw_edge['target']}")
@@ -210,7 +210,7 @@ else:
 
                 if edge_kind:
                     edge     = Edge(source_node=src_node, goal_node=dst_node, kind=edge_kind)
-                    strategy = GenericWriteStrategy(edge=edge, victim=src_node)
+                    strategy = GenericAllStrategy(edge=edge)
 
                     print_check(f"can_exploit() → {strategy.can_exploit()}")
 

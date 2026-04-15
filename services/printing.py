@@ -1,11 +1,11 @@
 # services/printing.py
-from rich.console import Console
+
 from rich.text import Text
 
+from .console import console
 from entities.node import Node
-from .reporting import format_node
+from .formatting import format_node
 
-console = Console()
 def _print_element(symbol:chr, text:str, color:str="white") -> None:
     content = Text()
     content.append(f"\n[{symbol}] {text}", style=color)

