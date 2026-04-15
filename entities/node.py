@@ -38,4 +38,6 @@ class Node:
 
 	def is_gpo(self) -> bool:
 		return self.kind == NodeKind.GPO
-# __repr__
+	
+	def sam(self) -> str:
+		return self.label.split("@")[0].lower() # should we lower?

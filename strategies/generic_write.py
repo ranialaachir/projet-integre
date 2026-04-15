@@ -7,6 +7,7 @@
 # GenericAll strategies will include delete/modify ACL/etc.
 
 # GenericAll will inherit form GenericWrite
+# In exploit() : try GenericAll-only techniques first then fall back to super().super(creds) for the shared ones
 
 from dataclasses import dataclass
 from .exploit_strategy import ExploitStrategy
