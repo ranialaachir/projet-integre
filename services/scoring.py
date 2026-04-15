@@ -10,21 +10,6 @@ from entities.node_kind import NodeKind
 
 
 # ---------------------------------------------------------------------------
-# High-value target names (BloodHound CE / GOAD-Mini format)
-# ---------------------------------------------------------------------------
-
-HIGH_VALUE_TARGETS = [
-    "DOMAIN ADMINS",
-    "ENTERPRISE ADMINS",
-    "SCHEMA ADMINS",
-    "DOMAIN CONTROLLERS",
-    "KRBTGT",
-    "ACCOUNT OPERATORS",
-    "BACKUP OPERATORS",
-]
-
-
-# ---------------------------------------------------------------------------
 # Edge severity scoring
 # ---------------------------------------------------------------------------
 
@@ -52,66 +37,56 @@ EDGE_SEVERITY: dict[EdgeKind, int] = {
 # Core scoring
 # ---------------------------------------------------------------------------
 
-def score_node_as_source(node: "Node") -> int:
-    """Score a node selon son utilisabilité comme point de départ d'attaque."""
-    score = 0
+def score_node_as_source(node: "Node", owned_sids: set[str]) -> int:
+    """Score optimisé avec détection dynamique des compromissions."""
     props = node.properties or {}
+    
+    # CRITÈRE 1 : Si le node est dans la liste API 'Owned' -> Score Maximum
+    if node.objectid in owned_sids or props.get("owned"):
+        return 100 
 
-    if props.get("owned") or props.get("isOwnedObject"):
-        score += 50
-
+    score = 0
+    # CRITÈRE 2 : Propriétés offensives
     if props.get("hasspn") or props.get("kerberoastable"):
         score += 40
-
     if props.get("dontreqpreauth"):
         score += 35
-
     if props.get("admincount"):
         score += 20
-
     if node.kind == NodeKind.COMPUTER and props.get("hasSession"):
         score += 15
 
+    # Malus pour les comptes inactifs
     if not props.get("enabled", True):
-        score -= 50
+        score -= 100 
+        
+    return max(0, score)
 
-    return score
 
-
-def score_node_as_target(node: "Node") -> int:
-    """Score a node selon sa valeur stratégique comme cible d'attaque."""
+def score_node_as_target(node: "Node", tier_zero_sids: set[str]) -> int:
+    """Score optimisé avec détection dynamique du Tier Zero via l'API."""
     props = node.properties or {}
-    label = (node.label or "").upper()
-
+    
     if not props.get("enabled", True):
         return 0
 
-    for target in HIGH_VALUE_TARGETS:
-        if target in label:
-            return 100
+    # CRITÈRE 1 : Tier Zero dynamique (API)
+    if node.objectid in tier_zero_sids:
+        return 100
 
+    # CRITÈRE 2 : High Value (Propriété statique/Neo4j)
     if props.get("highvalue"):
         return 90
 
-    if node.kind == NodeKind.USER:
-        return 0
-
-    if node.kind == NodeKind.DOMAIN:
-        return 60
-
-    if node.kind == NodeKind.GROUP:
-        return 55
-
-    if node.kind == NodeKind.COMPUTER:
-        return 40
-
-    if node.kind == NodeKind.GPO:
-        return 30
-
-    if node.kind == NodeKind.OU:
-        return 20
-
-    return 10
+    # CRITÈRE 3 : Hiérarchie structurelle (fallback)
+    hierarchy = {
+        NodeKind.DOMAIN: 60,
+        NodeKind.GROUP: 55,
+        NodeKind.COMPUTER: 40,
+        NodeKind.GPO: 30,
+        NodeKind.OU: 20
+    }
+    return hierarchy.get(node.kind, 0)
 
 
 def score_edge(edge: "Edge") -> int:
@@ -123,10 +98,10 @@ def score_edge(edge: "Edge") -> int:
 # Prioritization
 # ---------------------------------------------------------------------------
 
-def rank_sources(nodes: list["Node"]) -> list["Node"]:
+def rank_sources(nodes: list["Node"], owned_sids: set[str]) -> list["Node"]:
     relevant_kinds = (NodeKind.USER, NodeKind.COMPUTER)
     scored = [
-        (n, score_node_as_source(n))
+        (n, score_node_as_source(n, owned_sids))
         for n in nodes
         if n.kind in relevant_kinds
     ]
@@ -135,8 +110,8 @@ def rank_sources(nodes: list["Node"]) -> list["Node"]:
     return [n for n, _ in scored]
 
 
-def rank_targets(nodes: list["Node"]) -> list["Node"]:
-    scored = [(n, score_node_as_target(n)) for n in nodes]
+def rank_targets(nodes: list["Node"], tier_zero_sids: set[str]) -> list["Node"]:
+    scored = [(n, score_node_as_target(n, tier_zero_sids)) for n in nodes]
     scored = [(n, s) for n, s in scored if s > 0]
     scored.sort(key=lambda x: (x[1], x[0].label), reverse=True)
     return [n for n, _ in scored]
@@ -149,10 +124,14 @@ def rank_edges(edges: list["Edge"]) -> list["Edge"]:
     return [e for e, _ in scored]
 
 
-def prioritize(nodes: list["Node"], edges: list["Edge"] | None = None) -> dict:
+def prioritize(nodes: list["Node"], edges: list["Edge"] | None = None, owned_sids: set[str] | None = None, tier_zero_sids: set[str] | None = None) -> dict:
+    if owned_sids is None:
+        owned_sids = set()
+    if tier_zero_sids is None:
+        tier_zero_sids = set()
     result = {
-        "source_nodes": rank_sources(nodes),
-        "target_nodes": rank_targets(nodes),
+        "source_nodes": rank_sources(nodes, owned_sids),
+        "target_nodes": rank_targets(nodes, tier_zero_sids),
     }
     if edges is not None:
         result["edges"] = rank_edges(edges)
