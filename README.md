@@ -77,6 +77,9 @@ Copy `.env.example` to `.env` and fill in your values:
 BLOODHOUND_TOKEN_ID=your_token_id_here
 BLOODHOUND_TOKEN_KEY=your_token_key_here
 BLOODHOUND_URL=http://<SERVER_IP>:8083
+
+DC_IP=<AD_DN_IP>
+AD_DOMAIN=sevenkingdoms.local
 ```
 
 To generate a token: BloodHound UI → top right menu → **API Tokens** → Create Token.
@@ -104,6 +107,7 @@ bloodhound-auto/
 │   ├── enumeration.py     # Find users, groups, computers in the domain
 │   ├── pathfinding.py     # Shortest paths and attack path analysis
 │   ├── scoring.py         # Scoring / prioritization (scorer chaque finding par criticité)
+│   ├── parse_objects.py   # Extract nodes, edges and paths from JSON data
 │   └── reporting.py       # Output formatting and structured findings
 ├── strategies/
 │   ├── __init__.py
@@ -111,11 +115,15 @@ bloodhound-auto/
 │   ├── dc_sync.py             # DCSync rights exploitation
 │   ├── generic_write.py       # GenericWrite ACL abuse
 │   ├── kerberoast.py          # Kerberoastable service account targeting
+│   ├── add_member.py          # Add member to a Group
 │   └── pass_the_hash.py       # Pass-the-Hash lateral movement
 ├── utils/
 │   ├── __init__.py
 │   ├── auth.py            # BHAuth — HMAC request signing logic
 │   └── request.py         # BHRequest — get, post, delete HTTP methods
+│   ├── cred_store.py      # Temporary
+│   ├── platform.py        # Check the environment
+│   └── request.py         # Runs the cmd tools
 ├── main.py
 ├── .env                   # Your secrets (never committed)
 ├── .env.example           # Template for others
