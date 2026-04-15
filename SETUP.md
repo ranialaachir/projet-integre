@@ -7,10 +7,11 @@
 3. Verify after a new Session : `wsl bloodyAD --help`
 4. Check in the powershell : `wsl bash -lc "which bloodyAD"`
 5. `wsl sudo apt install -y samba-common-bin`
-6. `route add 192.168.56.0 mask 255.255.255.0 10.234.82.115 -p`
+6. `route add <GOAD_MACHINE_NETIP> mask 255.255.255.0 <SERVER_IP> -p`
 
 ### Linux (1 personne)
 1. `pip install bloodyAD`
+2. `ip route add <GOAD_MACHINE_NETIP>/24 via <SERVER_IP>`
 
 ### Everyone
 `pip install -r requirements.txt`
