@@ -1,10 +1,24 @@
 # entities/edge.py
 
+from dataclasses import dataclass
 from .node import Node
 from .edge_kind import EdgeKind
 
+
+@dataclass(frozen=True) # immutable
 class Edge:
-	def __init__(self, source_node: Node, goal_node: Node, kind: EdgeKind):
-		self.source_node = source_node
-		self.goal_node = goal_node
-		self.kind = kind
+    source_node: Node
+    goal_node: Node
+    kind: EdgeKind
+
+	# aliases
+    @property
+    def start(self) -> Node:
+        return self.source_node
+
+    @property
+    def target(self) -> Node:
+        return self.goal_node
+    
+    def __str__(self):
+            return f"{self.source} --[{self.kind}]--> {self.target}"

