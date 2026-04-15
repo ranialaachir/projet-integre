@@ -10,6 +10,13 @@ from entities.path import Path
 logger = logging.getLogger(__name__)
 
 # from : /api/v2/graphs/cypher
+def parse_dict_node(n: dict) -> dict[str, Node] | None:
+    """ Convert node data into a dict of nodes """
+    nodes = {}
+    for k, node in n.items():
+        nodes[k] = parse_node(n=node)
+    return nodes
+
 def parse_node(n: dict) -> Node | None:
     """Convert Node JSON to Node Object"""
     try:
@@ -24,6 +31,13 @@ def parse_node(n: dict) -> Node | None:
         properties = n.get("properties", {}), # TODO: Choose later on what to choose in properties
     )
 
+def parse_list_edge(e: list[dict], nodes:dict[str, Node]) -> Edge | None:
+    """ Convert list of edge data to a list of Edge"""
+    edges = []
+    for edge in e:
+        edges.append(parse_edge(e=edge, nodes=nodes))
+    return edges
+
 def parse_edge(e: dict, nodes:dict[str, Node]) -> Edge | None:
     """Convert raw API edge dict to Edge, using resolved Node objects."""
     try:
@@ -35,7 +49,7 @@ def parse_edge(e: dict, nodes:dict[str, Node]) -> Edge | None:
     source_id = e.get("source")
     target_id = e.get("target")
 
-    if source is None or target is None:
+    if source_id is None or target_id is None:
         print(f"  [!] Edge missing source or target id")
         return None
     

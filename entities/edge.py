@@ -13,7 +13,7 @@ class Edge:
 
 	# aliases
     @property
-    def source(self) -> Node:
+    def start(self) -> Node:
         return self.source_node
 
     @property
