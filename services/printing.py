@@ -30,3 +30,7 @@ def print_done(done:str) -> None:
 
 def print_node(node:Node) -> None:
     console.print(format_node(node))
+
+def print_dict_node(nodes:dict[str, Node]) -> None:
+    for node in nodes.values():
+        print_node(node)

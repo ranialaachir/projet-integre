@@ -13,7 +13,7 @@ from utils.request import BHRequest
 from utils.platform import BACKEND
 
 from services.pathfinding import get_path
-from services.printing import print_check, print_done, print_error, print_warning, print_title, print_node
+from services.printing import print_check, print_done, print_error, print_warning, print_title, print_node, print_dict_node
 from services.reporting import *
 from services.parse_objects import *
 from services.enumeration import Enumerations
@@ -62,28 +62,19 @@ print_title("Step 2 — Querying domains in Neo4j")
 enum = Enumerations(bh_request=bh)
 print_check("List of All Domains : ")
 domains = enum.get_domains()
-# print_check(f"Found {len(nodes)} domain(s):")
+print_check(f"Found {len(domains.keys())} domain(s):")
 if domains is None:
 	print_error("Cypher query failed. Is data collected and ingested?")
 	sys.exit(1)
-for domain in domains.values():
-    print_node(domain)  # to add : print all nodes and print all edges
+print_dict_node(domains)
 
 print_check("List of All Users")
 users = enum.get_users()
-if users is None:
-	print_error("Cypher query failed. Is data collected and ingested?")
-	sys.exit(1)
-for user in users.values():
-    print_node(user)
+print_dict_node(users)
 
 print_check("List of All Groups")
 groups = enum.get_groups()
-if groups is None:
-	print_error("Cypher query failed. Is data collected and ingested?")
-	sys.exit(1)
-for group in groups.values():
-    print_node(group)
+print_dict_node(groups)
 
 # ─── 4. Find a Kerberoastable user ───────────────────────────────────────────
 
