@@ -16,6 +16,7 @@ from services.pathfinding import get_path
 from services.printing import print_check, print_done, print_error, print_warning, print_title, print_node
 from services.reporting import *
 from services.parse_objects import *
+from services.enumeration import Enumerations
 
 from exceptions.no_path_error import NoPathError
 from exceptions.auto_pwn_exception import AutoPwnException
@@ -58,20 +59,31 @@ print_check(f"Connected. Token belongs to: {result.get('data', {}).get('principa
 # Sanity check that the Neo4j data is populated and the Cypher endpoint works.
 
 print_title("Step 2 — Querying domains in Neo4j")
-domain_result = bh.bh_post("/api/v2/graphs/cypher", 
-    {
-        "query": "MATCH (d:Domain) RETURN d",
-        "include_properties": True
-    }
-)
-if domain_result is None:
+enum = Enumerations(bh_request=bh)
+print_check("List of All Domains : ")
+domains = enum.get_domains()
+# print_check(f"Found {len(nodes)} domain(s):")
+if domains is None:
 	print_error("Cypher query failed. Is data collected and ingested?")
 	sys.exit(1)
+for domain in domains.values():
+    print_node(domain)  # to add : print all nodes and print all edges
 
-nodes = domain_result.get("data", {}).get("nodes", {})
-print_check(f"Found {len(nodes)} domain(s):")
-for node in nodes.values():
-    print_node((parse_node(node)))
+print_check("List of All Users")
+users = enum.get_users()
+if users is None:
+	print_error("Cypher query failed. Is data collected and ingested?")
+	sys.exit(1)
+for user in users.values():
+    print_node(user)
+
+print_check("List of All Groups")
+groups = enum.get_groups()
+if groups is None:
+	print_error("Cypher query failed. Is data collected and ingested?")
+	sys.exit(1)
+for group in groups.values():
+    print_node(group)
 
 # ─── 4. Find a Kerberoastable user ───────────────────────────────────────────
 
