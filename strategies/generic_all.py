@@ -149,4 +149,5 @@ def _bloodyad(creds: dict, subcommand: list[str]) -> list[str]: #creds maybe cla
         "-u", creds["username"],
     ]
     cmd += ["-p", creds.get("secret","")]
+    print(f"DEBUG : {cmd + subcommand}")
     return cmd + subcommand
