@@ -54,7 +54,7 @@ class GenericAllStrategy(ExploitStrategy):
             case NodeKind.GROUP:
                 return self._add_member(creds)
             case NodeKind.USER:
-                return self._force_change_password(creds)
+                return self._force_change_password(creds) # TODO : Add _targeted_kerberoast() & _shadow_credentials_attack
             case NodeKind.COMPUTER:
                 return self._rbcd(creds)
             case _:
@@ -141,6 +141,7 @@ class GenericAllStrategy(ExploitStrategy):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# TODO: Add support to add/set/remove subcommands clearly
 def _bloodyad(creds: dict, subcommand: list[str]) -> list[str]: #creds maybe class?
     cmd = [
         "-H", creds["dc_ip"],

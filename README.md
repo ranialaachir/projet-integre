@@ -149,6 +149,10 @@ Exceptions are centralized under `exceptions/` to allow services and strategies 
 
 ## Key Technical Notes
 
+Many common DACL abuses can be exploited with bloodyAD --replacing many of the old net rpc, pth-net, dacledit.py, owneredit.py, targetedKerberoast.py, and pywhisker commands.
+
+BloodyAD doesn't currently replace specific and/or advanced DACL writes on containers/OUs with custom inheritance. In such cases, Powershell or impacket tools could be used.
+
 ### BloodHound CE API query response structure
 
 When using `POST /api/v2/graphs/cypher`, the response splits into three buckets:
