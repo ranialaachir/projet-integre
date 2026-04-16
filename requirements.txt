@@ -1,5 +1,7 @@
 requests
 rich
 python-dotenv
+urllib.parse
+typing 
 #ldap3
 #bloodhound-ce
