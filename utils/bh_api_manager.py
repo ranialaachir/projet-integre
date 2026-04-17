@@ -6,18 +6,22 @@ class BHAPIManager:
         self.req = bh_request
 
     def get_owned_sids(self) -> set[str]:
-        """Récupère les ObjectIDs des nodes marqués comme 'Owned'."""
-        path = "/api/v2/bloodhound-users/owned-objects"
-        data = self.req.bh_get(path)
-        if data and "data" in data:
-            # On extrait uniquement les objectid pour une recherche rapide
-            return {obj["objectid"] for obj in data["data"]}
-        return set()
+        """Récupère les ObjectIDs des nodes marqués comme Owned."""
+        data = self.req.bh_get("/api/v2/bloodhound-users/owned-objects")
+        if not data or "data" not in data:
+            return set()
+        return {obj.get("objectid") or obj.get("object_id", "") for obj in data["data"]}
 
     def get_tier_zero_sids(self) -> set[str]:
-        """Récupère les ObjectIDs des membres du groupe Tier Zero (admin_tier_0)."""
-        path = "/api/v2/asset-isolation/asset-group-members?asset_group_tag=admin_tier_0"
-        data = self.req.bh_get(path)
-        if data and "data" in data:
-            return {obj["objectid"] for obj in data["data"]}
-        return set()
+        """Récupère les ObjectIDs des membres du Tier Zero via Cypher."""
+        result = self.req.bh_post("/api/v2/graphs/cypher", {
+            "query": "MATCH (n) WHERE n.highvalue = true RETURN n",
+            "include_properties": True
+        })
+        if not result or "data" not in result:
+            return set()
+        nodes = result["data"].get("nodes", {})
+        return {
+            node.get("objectId") or node.get("objectid", "")
+            for node in nodes.values()
+        }

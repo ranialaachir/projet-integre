@@ -17,7 +17,7 @@ class BHRequest:
 		for k, v in headers.items():
 			print(f" {k}: {v}")
 		try:
-			response = requests.get(f"{self.client.base_url}{path}", headers=headers)
+			response = requests.get(f"{self.client.base_url}{path}", headers=headers, timeout=30)
 			response.raise_for_status()
 			return response.json()
 		except requests.exceptions.ConnectionError:
@@ -40,7 +40,8 @@ class BHRequest:
 		try:
 			response = requests.post(f"{self.client.base_url}{path}",
 	 				           headers={**headers, "Content-Type": "application/json"},
-						   data=body_bytes
+						   data=body_bytes,
+						   timeout=30
 						)
 			response.raise_for_status()
 			return response.json()
