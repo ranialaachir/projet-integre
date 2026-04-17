@@ -11,7 +11,4 @@ class NoPathError(AutoPwnException):
 	def __init__(self, start_node:Node, goal_node:Node):
 		self.start_node = start_node
 		self.goal_node = goal_node
-		super().__init__(
-			f"Finding Path Failed "
-			f"No Path ({start_node.label} --> {goal_node.label})"
-		)
+		super().__init__(f"No path found: {start_node.label} --> {goal_node.label}")

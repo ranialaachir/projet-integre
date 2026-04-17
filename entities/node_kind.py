@@ -1,4 +1,4 @@
-# entities/node_label.py
+# entities/node_kind.py
 
 from enum import Enum
 

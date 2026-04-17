@@ -5,10 +5,10 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 
-
+# To change for more commands
 @dataclass(frozen=True)
 class Backend:
-    name:   str
+    name  : str
     prefix: list[str]
 
 
@@ -29,6 +29,5 @@ def detect_backend() -> Backend:
             return Backend(name="wsl_bloodyad", prefix=["wsl", path])
 
     return Backend(name="none", prefix=[])
-
 
 BACKEND: Backend = detect_backend()

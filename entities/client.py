@@ -1,14 +1,27 @@
 # entities/client.py
 
-import sys
+from dataclasses import dataclass, field
+from exceptions.config_error import ConfigError
 
+@dataclass
 class Client:
-	def __init__(self, token_id:str, token_key:str, base_url:str):
-		self._token_id = token_id
-		self._token_key = token_key
-		self.base_url = base_url
+    _token_id: str
+    _token_key: str
+    base_url: str
 
-	def check_credentials(self):
-		if not all([self._token_id, self._token_key, self.base_url]):
-			print("[-] Missing Environment Variables!")
-			sys.exit(1)
+    # Hide sensitive fields from being printed
+    _sensitive_fields: list[str] = field(default_factory=lambda: ["_token_key"], repr=False)
+
+    def check_credentials(self) -> bool:
+        for name, val in {
+            "token_id":  self._token_id,
+            "token_key": self._token_key,
+            "base_url":  self.base_url,
+        }.items():
+            if not val:
+                raise ConfigError(field=name, reason="must not be empty")
+        return True
+
+    def __post_init__(self):
+        """Called automatically after __init__"""
+        self.check_credentials()   # Validate on creation
