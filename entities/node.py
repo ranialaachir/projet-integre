@@ -41,3 +41,7 @@ class Node:
 	
 	def sam(self) -> str:
 		return self.label.split("@")[0].lower() # should we lower?
+
+	@property
+	def distinguished_name(self) -> str:
+		return self.properties.get("distinguishedname") or self.properties.get("dn") or ""
