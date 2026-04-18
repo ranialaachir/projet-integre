@@ -14,9 +14,9 @@ Target environment: **GOAD-Mini** (`sevenkingdoms.local`) — an intentionally v
 
 ## What it does
 
-- Enumerate all users, groups, and computers in the domain
+- Enumerate all objects in the domain
 - Find shortest attack paths from any principal to Domain Admins
-- Map BloodHound edges to concrete exploitation techniques (Kerberoasting, ACL abuse, Pass-the-Hash, DCSync, GenericWrite, etc.)
+- Map BloodHound edges to concrete exploitation techniques (Kerberoasting, ACL abuse, DCSync, GenericWrite, etc.)
 - Rank findings by path length and exploitability
 - Output structured, readable reports
 
@@ -124,6 +124,7 @@ bloodhound-auto/
 │   ├── cred_store.py      # Temporary
 │   ├── platform.py        # Check the environment
 │   └── request.py         # Runs the cmd tools
+	pagination.py
 ├── main.py
 ├── .env                   # Your secrets (never committed)
 ├── .env.example           # Template for others
