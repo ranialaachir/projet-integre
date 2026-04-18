@@ -43,3 +43,20 @@ class Enumerations:
     def get_gpos(self):
         data = self._get_nodes(NodeKind.GPO)
         return parse_dict_node(n=data)
+
+    def get_kerberoastable_users(self) -> dict[str, Node]:
+    	query = (
+        "MATCH (u:User) "
+        "WHERE u.hasspn = true "
+        "AND u.enabled = true "
+        "RETURN u"
+    	)
+    	data = self.bh_request.bh_post("/api/v2/graphs/cypher", {
+        "query": query,
+        "include_properties": True
+   	 })
+
+    	if not data or "data" not in data:
+        	return {}
+
+    	return parse_dict_node(n=data["data"]["nodes"])
