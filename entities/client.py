@@ -1,6 +1,7 @@
 # entities/client.py
 
 from dataclasses import dataclass, field
+from typing import Any
 from exceptions.config_error import ConfigError
 
 @dataclass
@@ -8,7 +9,7 @@ class Client:
     _token_id: str
     _token_key: str
     base_url: str
-
+    ldap_connection: Any = field(default=None, repr=False)
     # Hide sensitive fields from being printed
     _sensitive_fields: list[str] = field(default_factory=lambda: ["_token_key"], repr=False)
 
