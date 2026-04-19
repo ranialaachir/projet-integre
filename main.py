@@ -24,8 +24,21 @@ from exceptions.config_error import ConfigError
 from exceptions.hop_failed_error import HopFailedError
 
 from strategies.generic_all import GenericAllStrategy
+from strategies.read_laps   import ReadLAPSStrategy
+from strategies.admin_to    import AdminToStrategy
+from strategies.has_session import HasSessionStrategy
+from strategies.dc_sync     import DCSyncStrategy
 
 load_dotenv()
+
+
+STRATEGY_MAP = {
+    EdgeKind.READ_LAPS_PASS: ReadLAPSStrategy(),
+    EdgeKind.ADMIN_TO:           AdminToStrategy(),
+    EdgeKind.HAS_SESSION:        HasSessionStrategy(),
+    EdgeKind.DCSYNC:             DCSyncStrategy(),
+    EdgeKind.GET_CHANGES_ALL:    DCSyncStrategy(),  # équivalent
+}
 
 # ─── 1. Load credentials ────────────────────────────────────────────────────
 
@@ -219,3 +232,144 @@ else:
                 print_warning(f"Exploit returned success=False:\n{result.output}")
         except HopFailedError as e:
             print_error(f"HopFailedError: {e}")
+
+
+
+#nada test
+# ─── Helper commun pour lancer une stratégie depuis un edge BloodHound ────────
+
+def _run_strategy(strategy, edge, creds: dict) -> None:
+    """Lance une stratégie et affiche le résultat de façon uniforme."""
+    print_check(f"Attacker : {edge.start.label}  ({edge.start.kind.value})")
+    print_check(f"Target   : {edge.target.label}  ({edge.target.kind.value})")
+    print_check(f"can_exploit() → {strategy.can_exploit()}")
+    print_check(f"Launching exploit — {edge.kind.value}")
+
+    try:
+        result = strategy.exploit(creds)
+        if result.was_executed():
+            print_done(f"Exploit succeeded! Technique: {result.technique}")
+            print_check(f"Output:\n{result.summary()}")
+            result.print_next_steps()
+        elif result.is_dry_run():
+            print_warning(f"Dry run / success=None:\n{result.output}")
+        else:
+            print_warning(f"Exploit failed:\n{result.output}")
+    except HopFailedError as e:
+        print_error(f"HopFailedError: {e}")
+
+
+# Credentials communs pour toutes les stratégies (lus depuis .env)
+CREDS = {
+    "dc_ip":    os.getenv("DC_IP",       "192.168.56.10"),
+    "domain":   os.getenv("AD_DOMAIN",   "sevenkingdoms.local"),
+    "username": os.getenv("AD_USERNAME", "cersei"),
+    "password": os.getenv("AD_PASSWORD", "cersei"),
+}
+
+
+# ─── 9. HasSession ───────────────────────────────────────────────────────────
+print_title("Step 8 — Testing HasSession exploit")
+
+hs_result = bh.bh_post("/api/v2/graphs/cypher", {
+    "query": """
+        MATCH (src:Computer)-[r:HasSession]->(dst:User)
+        WHERE dst.enabled = true
+        RETURN src, r, dst
+        LIMIT 1
+    """,
+    "include_properties": True
+})
+
+hs_nodes = hs_result.get("data", {}).get("nodes", {}) if hs_result else {}
+hs_edges = hs_result.get("data", {}).get("edges", []) if hs_result else []
+
+if not hs_edges or not hs_nodes:
+    print_warning("No HasSession edge found in the graph.")
+else:
+    nodes  = parse_dict_node(n=hs_nodes)
+    edge   = parse_list_edge(e=hs_edges, nodes=nodes)[0]
+    strategy = HasSessionStrategy(edge=edge)
+    print_check(f"Found edge: {edge.kind.value} — {edge.start.label} → {edge.target.label}")
+    _run_strategy(strategy, edge, CREDS)
+
+
+# ─── 10. AdminTo ─────────────────────────────────────────────────────────────
+print_title("Step 9 — Testing AdminTo exploit")
+
+at_result = bh.bh_post("/api/v2/graphs/cypher", {
+    "query": """
+        MATCH (src:User)-[r:AdminTo]->(dst:Computer)
+        WHERE src.enabled = true
+        RETURN src, r, dst
+        LIMIT 1
+    """,
+    "include_properties": True
+})
+
+at_nodes = at_result.get("data", {}).get("nodes", {}) if at_result else {}
+at_edges = at_result.get("data", {}).get("edges", []) if at_result else []
+
+if not at_edges or not at_nodes:
+    print_warning("No AdminTo edge found in the graph.")
+else:
+    nodes    = parse_dict_node(n=at_nodes)
+    edge     = parse_list_edge(e=at_edges, nodes=nodes)[0]
+    strategy = AdminToStrategy(edge=edge)
+    print_check(f"Found edge: {edge.kind.value} — {edge.start.label} → {edge.target.label}")
+    _run_strategy(strategy, edge, CREDS)
+
+
+# ─── 11. ReadLAPS ────────────────────────────────────────────────────────────
+print_title("Step 10 — Testing ReadLAPS exploit")
+
+laps_result = bh.bh_post("/api/v2/graphs/cypher", {
+    "query": """
+        MATCH (src)-[r:ReadLAPSPassword]->(dst:Computer)
+        WHERE src.enabled = true
+        RETURN src, r, dst
+        LIMIT 1
+    """,
+    "include_properties": True
+})
+
+laps_nodes = laps_result.get("data", {}).get("nodes", {}) if laps_result else {}
+laps_edges = laps_result.get("data", {}).get("edges", []) if laps_result else []
+
+if not laps_edges or not laps_nodes:
+    print_warning("No ReadLAPSPassword edge found in the graph.")
+else:
+    nodes    = parse_dict_node(n=laps_nodes)
+    edge     = parse_list_edge(e=laps_edges, nodes=nodes)[0]
+    strategy = ReadLAPSStrategy(edge=edge)
+    print_check(f"Found edge: {edge.kind.value} — {edge.start.label} → {edge.target.label}")
+    _run_strategy(strategy, edge, CREDS)
+
+
+# ─── 12. DCSync ──────────────────────────────────────────────────────────────
+print_title("Step 11 — Testing DCSync exploit")
+
+dc_result = bh.bh_post("/api/v2/graphs/cypher", {
+    "query": """
+        MATCH (src)-[r:DCSync|GetChangesAll]->(dst:Domain)
+        WHERE src.enabled = true
+        RETURN src, r, dst
+        LIMIT 1
+    """,
+    "include_properties": True
+})
+
+dc_nodes = dc_result.get("data", {}).get("nodes", {}) if dc_result else {}
+dc_edges = dc_result.get("data", {}).get("edges", []) if dc_result else []
+
+if not dc_edges or not dc_nodes:
+    print_warning("No DCSync / GetChangesAll edge found in the graph.")
+else:
+    nodes    = parse_dict_node(n=dc_nodes)
+    edge     = parse_list_edge(e=dc_edges, nodes=nodes)[0]
+    strategy = DCSyncStrategy(edge=edge)
+    print_check(f"Found edge: {edge.kind.value} — {edge.start.label} → {edge.target.label}")
+    _run_strategy(strategy, edge, CREDS)
+
+
+print_done("All strategy tests complete.")
