@@ -58,7 +58,9 @@ def _load(path):
     spec.loader.exec_module(mod)
     return mod
  
-BASE = pathlib.Path(__file__).parent.parent / "strategies"
+BASE = pathlib.Path(__file__).resolve().parent / "strategies"
+if not BASE.exists():
+    BASE = pathlib.Path(__file__).resolve().parent.parent / "strategies"
  
 ReadLAPSStrategy  = _load(BASE / "read_laps.py").ReadLAPSStrategy
 AdminToStrategy   = _load(BASE / "admin_to.py").AdminToStrategy
