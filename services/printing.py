@@ -4,7 +4,8 @@ from rich.text import Text
 
 from .console import console
 from entities.node import Node
-from .formatting import format_node
+from entities.path import Path
+from .formatting import format_node, format_path
 
 from references.privilege_levels import PrivilegeLevel
 
@@ -33,22 +34,26 @@ def print_done(done:str) -> None:
 def print_node(node:Node, tag:str="") -> None:
     console.print(format_node(node, tag))
 
-def print_level(node:Node, level:PrivilegeLevel) -> None: # Add color by severity
-    levels_colors = [
-        "#00FF00",
-        "#33FF00",
-        "#66FF00",
-        "#99FF00",
-        "#CCFF00",
-        "#FFCC00",
-        "#FF9900",
-        "#FF6600",
-        "#FF3300",
-        "#FF0000"
-    ]
-    _print_element(level.name, " : ", levels_colors[level])
-    print_node(node)
+def print_path(path:Path, index:int=1) -> None: # , tag:str=""
+    console.print(format_path(path=path, index=index))
 
 def print_dict_node(nodes:dict[str, Node]) -> None:
     for node in nodes.values():
         print_node(node)
+
+def print_level(level:PrivilegeLevel) -> None: # Add color by severity
+    levels_colors = [
+        "#FF0000",
+        "#FF3300",
+        "#FF6600",
+        "#FF9900",
+        "#FFCC00",
+        "#CCFF00",
+        "#99FF00",
+        "#66FF00",
+        "#33FF00",
+        "#00FF00",
+    ]
+    content = Text()
+    content.append(f"\n_____[{level.name}]_____", style=levels_colors[level])
+    console.print(content)

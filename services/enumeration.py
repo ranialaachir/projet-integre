@@ -18,28 +18,33 @@ class Enumerations:
             "include_properties": True
         })
         # Add exception
+        return parse_dict_node(data["data"]["nodes"])
+    
+    def _get_tier_zero_nodes(self, kind:NodeKind=None):
+        query = ( #$src_id, $tgt_id with parameters
+            f"MATCH (u:{kind.value}) WHERE (u:tag_Zero_Tier) RETURN u"
+        )
+        data = self.bh_request.bh_post("/api/v2/graphs/cypher", { # cypher query can be a util maybe?
+            "query": query,
+            "include_properties": True
+        })
+        # Add exception
         return data["data"]["nodes"]
 
     def get_users(self) -> dict[str, Node]:
-        data = self._get_nodes(NodeKind.USER)
-        return parse_dict_node(n=data)
+        return self._get_nodes(NodeKind.USER)
     
     def get_domains(self):
-        data = self._get_nodes(NodeKind.DOMAIN)
-        return parse_dict_node(n=data)
+        return self._get_nodes(NodeKind.DOMAIN)
     
     def get_groups(self):
-        data = self._get_nodes(NodeKind.GROUP)
-        return parse_dict_node(n=data)
+        return self._get_nodes(NodeKind.GROUP)
     
     def get_ous(self):
-        data = self._get_nodes(NodeKind.OU)
-        return parse_dict_node(n=data)
+        return self._get_nodes(NodeKind.OU)
     
     def get_container(self):
-        data = self._get_nodes(NodeKind.CONTAINER)
-        return parse_dict_node(n=data)
+        return self._get_nodes(NodeKind.CONTAINER)
     
     def get_gpos(self):
-        data = self._get_nodes(NodeKind.GPO)
-        return parse_dict_node(n=data)
+        return self._get_nodes(NodeKind.GPO)

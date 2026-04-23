@@ -1,15 +1,15 @@
 # services/formatting.py
 
-from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
-from rich import box
 
 from entities.node import Node
 from entities.edge import Edge
 from entities.path import Path
 from entities.node_kind import NodeKind
 from entities.edge_kind import EdgeKind
+from .scoring import path_cost
+from references.privilege_levels import PrivilegeLevel
 
 # TODO : Add these to a different file (utils, entities or services) in v2 if you add a config system.
 # ─── Color maps ───────────────────────────────────────────────────────────────
@@ -248,28 +248,45 @@ def format_edge(edge: Edge) -> Text:
     t.append(f"({label})",           style=f"italic {color}")
     return t
 
-def format_path(path: Path, index: int = 1) -> Panel:
+def format_path(path: Path, index: int = 1, privilege_level: PrivilegeLevel | None = None) -> Panel:
     """
     Formate un Path complet comme un Panel rich.
     Entrelace les nœuds et les edges dans l'ordre.
+    Severity of a path = how critical is where it leads (privilege level)
+    Cost of a path     = how hard is it to walk that path (edge costs)
+    - privilege_level drives the border color (how critical is the target)
+    - cost is displayed as info (how hard is the path)
     """
-    worst    = _worst_edge(path)
-    severity = EDGE_SEVERITY.get(worst.kind, 0) if worst else 0
+    #worst    = _worst_edge(path)
+    # severity = EDGE_SEVERITY.get(worst.kind, 0) if worst else 0
+    cost = path_cost(path.edges)
 
-    # Couleur de la bordure selon la criticité du pire edge
-    # TODO : Change after Scoring, scoring should give us an enum of severity
-    if severity >= 8:
-        border_color = "bold red"
-    elif severity >= 5:
-        border_color = "yellow"
+    # Border color = severity = privilege level of the TARGET
+    if privilege_level is not None:
+        if privilege_level <= PrivilegeLevel.DOMAIN_ADMIN:
+            border_color = "bold red"
+        elif privilege_level <= PrivilegeLevel.SERVER_ADMIN:
+            border_color = "yellow"
+        elif privilege_level <= PrivilegeLevel.DELEGATED_ADMIN:
+            border_color = "bright_yellow"
+        else:
+            border_color = "blue"
     else:
-        border_color = "blue"
+        border_color = "white"
 
+    # Header
     content = Text()
     content.append(f"Path #{index}", style="bold white")
-    content.append(f"  —  {path.length} hop(s)\n\n", style="dim")
+    content.append(f"  —  {path.length} hop(s)", style="dim")
+    content.append(f"  —  cost: {cost}", style="dim")
+    if privilege_level is not None:
+        content.append(
+            f"  —  target tier: {privilege_level.name}",
+            style=f"bold {border_color}"
+        )
+    content.append("\n\n")
 
-    # nodes = _node_sequence(path)
+    # Interleave nodes and edges
     nodes = path.node_sequence()
 
     for i, node in enumerate(nodes):

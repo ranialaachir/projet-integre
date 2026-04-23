@@ -6,14 +6,18 @@ from dotenv import load_dotenv
 from entities.client import Client
 from entities.node import Node
 from entities.node_kind import NodeKind
-from entities.edge import Edge
-from entities.edge_kind import EdgeKind
 
 from utils.request import BHRequest
 from utils.platform import BACKEND
 
 from services.pathfinding import get_path
-from services.printing import print_check, print_done, print_error, print_warning, print_title, print_node, print_dict_node, print_level
+from services.printing import (
+    print_check, print_done,
+    print_error, print_warning, 
+    print_title, print_node, 
+    print_dict_node, print_level,
+    print_path
+)
 from services.reporting import *
 from services.parse_objects import *
 from services.enumeration import Enumerations
@@ -26,7 +30,7 @@ from exceptions.hop_failed_error import HopFailedError
 from strategies.generic_all import GenericAllStrategy
 from strategies.dc_sync import DCSyncStrategy
 
-from services.scoring import path_cost, edge_cost
+from services.scoring import path_cost
 from references.privilege_levels import classify, PrivilegeLevel
 
 load_dotenv()
@@ -173,7 +177,7 @@ for u_data in user_nodes.values():
             print_warning(f"Path found but all edges were unknown kinds, skipping.")
             continue
         print_check(f"Path found! Length: {path.length} hop(s)")
-        console.print(format_path(path, index=1))
+        print_path(path, index=1)
         path_found = True
         break
     except NoPathError:
@@ -336,17 +340,18 @@ else:
     print_title("Step 11 — Classify targets")
 
     # Group targets by privilege level and sort (most critical first)
-    classified: list[tuple[Node, PrivilegeLevel]] = []
-
+    classified: dict[PrivilegeLevel, list[Node]] = {}
     for node in nodes.values():
         level = classify(node)
-        classified.append((node, level))
+        if level not in classified.keys():
+            classified[level] = [node]
+        else:
+            classified[level].append(node)
 
-    classified.sort(key=lambda pair: pair[1])  # lower = more privileged
-
-    for node, level in classified:
-        print_level(node, level)
-        print_check(f"  [{level.name}] {node}")  # Add print_level_node
+    for level, nodes in classified.items():
+        print_level(level)
+        for node in nodes:
+            print_node(node)
 
     # ──────────────────────────────────────────────────────────
     # Step 13 — Find paths from owned → targets
@@ -356,37 +361,36 @@ else:
 
     results = []
 
-    for target, level in classified:
+    for level, targets in classified.items():  # ?? We'll print all paths, but later only the best (!!)
         for source in owned_nodes:
-            # Skip if source IS the target
-            if source.objectid == target.objectid:
-                continue
-
-            try:
-                path = get_path(bh, source, target)
-                cost = path_cost(path.edges)
-                results.append({
-                    "source": source,
-                    "target": target,
-                    "privilege_level": level,
-                    "path": path,
-                    "cost": cost,
-                })
-                print_check(
-                    f"{source.label} → {target.label} "
-                    f"[{level.name}] cost={cost} hops={len(path.edges)}"
-                )
-            except NoPathError:
-                print_warning(f"No path: {source.label} → {target.label}")
-            except Exception as e:
-                print_warning(f"Error: {source.label} → {target.label}: {e}")
-
+            for target in targets:
+                # Skip if source IS the target
+                if source.objectid == target.objectid:
+                    continue
+                try:
+                    path = get_path(bh, source, target)
+                    cost = path_cost(path.edges)
+                    results.append({
+                        "source": source,
+                        "target": target,
+                        "privilege_level": level,
+                        "path": path,
+                        "cost": cost,
+                    })
+                    print_check(
+                        f"{source.label} → {target.label} "
+                        f"[{level.name}] cost={cost} hops={len(path.edges)}"
+                    )
+                except NoPathError:
+                    print_warning(f"No path: {source.label} → {target.label}")
+                except Exception as e:
+                    print_warning(f"Error: {source.label} → {target.label}: {e}")
 
     # ──────────────────────────────────────────────────────────
     # Step 14 — Rank and display best attack paths
     # ──────────────────────────────────────────────────────────
 
-    print_title("Step 13 — Best attack paths (sorted by cost)")
+    print_title("Step 13 — Best attack paths")
 
     if not results:
         print_warning("No attack paths found from owned nodes.")
@@ -395,18 +399,9 @@ else:
         results.sort(key=lambda r: (r["privilege_level"], r["cost"]))
 
         for i, r in enumerate(results, 1):
-            path = r["path"]
-            print(f"\n{'='*60}")
-            print(f"  Path #{i}")
-            print(f"  From:   {r['source'].label}")
-            print(f"  To:     {r['target'].label}")
-            print(f"  Level:  {r['privilege_level'].name}")
-            print(f"  Cost:   {r['cost']}")
-            print(f"  Hops:   {len(path.edges)}")
-            print(f"{'='*60}")
-
-            for edge in path.edges:
-                cost = edge_cost(edge)
-                print(f"    {edge.source_node.label}")
-                print(f"      --[{edge.kind.value}]--> (cost: {cost})")
-            print(f"    {path.edges[-1].goal_node.label}")
+            panel = format_path(
+                path=r["path"],
+                index=i,
+                privilege_level=r["privilege_level"],
+            )
+            console.print(panel)
