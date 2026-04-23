@@ -1,5 +1,8 @@
-from .request import BHRequest
+# utils/bh_api_manager.py
 
+# TODO : See this and main and see how to manage these
+
+from .request import BHRequest
 
 class BHAPIManager:
     def __init__(self, bh_request: BHRequest):

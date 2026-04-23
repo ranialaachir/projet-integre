@@ -124,7 +124,7 @@ bloodhound-auto/
 │   ├── cred_store.py      # Temporary
 │   ├── platform.py        # Check the environment
 │   └── request.py         # Runs the cmd tools
-├── main.py
+├── main.py                # Orchestrate
 ├── .env                   # Your secrets (never committed)
 ├── .env.example           # Template for others
 ├── .gitignore

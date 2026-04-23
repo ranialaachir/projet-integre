@@ -9,5 +9,5 @@ class Credential:
     hash     : str = ""
     ticket   : str = ""          # ccache path for Linux/WSL
     source   : str = ""          # which exploit produced this
-    #domain   : str = ""
-    #dc_ip    : str = ""
+    domain   : str = ""
+    dc_ip    : str = ""

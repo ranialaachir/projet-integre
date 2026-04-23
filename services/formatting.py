@@ -217,7 +217,7 @@ def _worst_edge(path: Path) -> Edge | None: # TODO:SCORING
         key=lambda e: EDGE_SEVERITY.get(e.kind, 0)
     )
 
-def format_node(node: Node) -> Text:
+def format_node(node: Node, tag:str="") -> Text:  # TODO : format the tag better
     """
     Retourne un Text rich :  [USER] JOFFREY@SEVENKINGDOMS.LOCAL
     node.kind est un NodeKind enum → on utilise .value pour le display.
@@ -226,7 +226,7 @@ def format_node(node: Node) -> Text:
     kind_str  = node.kind.value  # "User", "Group", etc.
 
     t = Text()
-    t.append(f"\n[{kind_str}]", style=f"bold {color}")
+    t.append(f"\n{tag} [{kind_str}]", style=f"bold {color}")
     t.append(f" {node.objectid}",  style=color)
     t.append(f" - {node.label}",  style=color)
     return t
