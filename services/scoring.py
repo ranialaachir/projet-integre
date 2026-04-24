@@ -1,6 +1,7 @@
 # services/scoring.py
 from entities.edge import Edge
 from entities.edge_kind import EdgeKind
+from entities.path import Path
 
 
 # COST, not severity. Lower = easier to exploit = better for attacker.
@@ -33,3 +34,13 @@ def edge_cost(edge: Edge) -> int:
 def path_cost(edges: list[Edge]) -> int:
     """Total cost of a path. Lower = better."""
     return sum(edge_cost(e) for e in edges)
+
+def most_critical_edge(path: Path) -> Edge | None:
+    """
+    Returns the single most dangerous edge in the path.
+    Useful for reporting: 'what is the scariest step?'
+    Note: use path_cost() for comparing paths, not this.
+    """
+    if not path.edges:
+        return None
+    return max(path.edges, key=lambda e: EDGE_COST.get(e.kind, DEFAULT_COST))

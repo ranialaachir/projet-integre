@@ -1,20 +1,13 @@
 # strategies/__init__.py
+from .add_member import AddMemberStrategy
+from .force_change_password import ForceChangePasswordStrategy
+from .generic_all import GenericAllStrategy
+from .generic_write import GenericWriteStrategy
 
-# from .exploit_strategy import ExploitStrategy
-
-# from strategies.generic_all import GenericAllStrategy
-# from strategies.generic_write import GenericWriteStrategy
-# # from strategies.write_dacl import WriteDaclStrategy
-# #from strategies.add_member import AddMemberStrategy
-# from strategies.dc_sync import DCSyncStrategy
-# #from strategies.kerberoast import KerberoastStrategy
-
-# ABUSE_MAP: dict[str, "ExploitStrategy"] = {
-#     "GenericAll":          GenericAllStrategy(),
-#     "GenericWrite":        GenericWriteStrategy(),
-#     # "WriteDacl":           WriteDaclStrategy(),
-#     # "AddMember":           AddMemberStrategy(),
-#     "GetChanges":          DCSyncStrategy(),
-#     "GetChangesAll":       DCSyncStrategy(),
-#     # "Kerberoastable":      KerberoastStrategy(),
-# }
+# (strategy_class, cypher_relationship, source_label, target_label)
+STRATEGY_REGISTRY = [
+    (AddMemberStrategy,             "AddMember",            "Base",  "Group"),
+    (ForceChangePasswordStrategy,   "ForceChangePassword",  "Base",  "User"),
+    (GenericAllStrategy,            "GenericAll",           "Base",  "Base"),
+    (GenericWriteStrategy,          "GenericWrite",         "Base",  "Base"),
+]

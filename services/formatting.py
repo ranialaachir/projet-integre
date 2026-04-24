@@ -2,299 +2,100 @@
 
 from rich.panel import Panel
 from rich.text import Text
+from rich.style import Style
 
 from entities.node import Node
 from entities.edge import Edge
 from entities.path import Path
-from entities.node_kind import NodeKind
-from entities.edge_kind import EdgeKind
-from .scoring import path_cost
+from .scoring import path_cost, edge_cost  # added edge_cost for per‑edge display
 from references.privilege_levels import PrivilegeLevel
+from references.color_maps import NODE_COLORS, EDGE_META, DEFAULT_NODE_COLOR, DEFAULT_EDGE_META
 
-# TODO : Add these to a different file (utils, entities or services) in v2 if you add a config system.
-# ─── Color maps ───────────────────────────────────────────────────────────────
 
-NODE_COLORS: dict[NodeKind, str] = { # TODO: utils:color_maps
-    NodeKind.USER:      "#17E625",
-    NodeKind.OU:        "#FFAA00",
-    NodeKind.GROUP:     "#DBE617",
-    NodeKind.GPO:       "#776FC2",
-    NodeKind.DOMAIN:    "#17E6B9",
-    NodeKind.CONTAINER: "#F79A78",
-    NodeKind.COMPUTER:  "#E67873",
-}
-
-EDGE_META: dict[EdgeKind, dict] = { # TODO: utils:color_maps
-
-    # ── Structural / low severity ──────────────────────────────────────────
-    EdgeKind.MEMBER_OF:           {
-        "color": "grey50",
-        "icon":  "○",
-        "label": "MemberOf — group membership"
-    },
-    EdgeKind.CONTAINS:            {
-        "color": "grey50",
-        "icon":  "⊃",
-        "label": "Contains — OU contains object"
-    },
-    EdgeKind.TRUSTED_BY:          {
-        "color": "blue",
-        "icon":  "⇌",
-        "label": "TrustedBy — domain trust"
-    },
-
-    # ── Session / presence ─────────────────────────────────────────────────
-    EdgeKind.HAS_SESSION:         {
-        "color": "yellow",
-        "icon":  "◈",
-        "label": "HasSession — active session on host"
-    },
-
-    # ── Remote access ──────────────────────────────────────────────────────
-    EdgeKind.CAN_RDP_TO:          {
-        "color": "yellow",
-        "icon":  "⬡",
-        "label": "CanRDPTo — RDP access"
-    },
-    EdgeKind.CAN_PS_REMOTE_TO:    {
-        "color": "yellow",
-        "icon":  "⬡",
-        "label": "CanPSRemoteTo — WinRM/PSRemote access"
-    },
-
-    # ── Admin access ───────────────────────────────────────────────────────
-    EdgeKind.ADMIN_TO:            {
-        "color": "red",
-        "icon":  "★",
-        "label": "AdminTo — local administrator"
-    },
-
-    # ── Write primitives ───────────────────────────────────────────────────
-    EdgeKind.GENERIC_WRITE:       {
-        "color": "bright_yellow",
-        "icon":  "✎",
-        "label": "GenericWrite — write any non-protected attribute"
-    },
-    EdgeKind.WRITE_DACL:          {
-        "color": "bright_yellow",
-        "icon":  "✎",
-        "label": "WriteDacl — modify object ACL"
-    },
-    EdgeKind.WRITE_OWNER:         {
-        "color": "bright_yellow",
-        "icon":  "✎",
-        "label": "WriteOwner — change object owner"
-    },
-    EdgeKind.ADD_MEMBER:          {
-        "color": "bright_yellow",
-        "icon":  "✎",
-        "label": "AddMember — add user to group"
-    },
-
-    # ── Ownership / full control ───────────────────────────────────────────
-    EdgeKind.OWNS:                {
-        "color": "bright_red",
-        "icon":  "⚑",
-        "label": "Owns — owner of object (implicit WriteDacl)"
-    },
-    EdgeKind.GENERIC_ALL:         {
-        "color": "bright_red",
-        "icon":  "⚑",
-        "label": "GenericAll — full control"
-    },
-
-    # ── Credential access ──────────────────────────────────────────────────
-    EdgeKind.FORCE_CHANGE_PW:     {
-        "color": "bright_yellow",
-        "icon":  "🔑",
-        "label": "ForceChangePassword — reset password without knowing current"
-    },
-    EdgeKind.READ_LAPS_PASS:      {
-        "color": "magenta",
-        "icon":  "🔑",
-        "label": "ReadLAPSPassword — read local admin password"
-    },
-    EdgeKind.KERBEROASTABLE:      {
-        "color": "bright_magenta",
-        "icon":  "⚡",
-        "label": "Kerberoastable — SPN set, hash crackable offline"
-    },
-
-    # ── Delegation / impersonation ─────────────────────────────────────────
-    EdgeKind.ALLOWED_TO_DELEGATE: {
-        "color": "magenta",
-        "icon":  "⇒",
-        "label": "AllowedToDelegate — constrained delegation"
-    },
-    EdgeKind.ALLOWED_TO_ACT:      {
-        "color": "bright_magenta",
-        "icon":  "⇒",
-        "label": "AllowedToAct — RBCD, impersonate any user to target"
-    },
-
-    # ── Coercion ───────────────────────────────────────────────────────────
-    EdgeKind.COERCE_TO_TGT:       {
-        "color": "bright_red",
-        "icon":  "⚡",
-        "label": "CoerceToTGT — force TGT via coercion"
-    },
-
-    # ── Replication / DCSync ───────────────────────────────────────────────
-    EdgeKind.GET_CHANGES:         {
-        "color": "yellow",
-        "icon":  "↻",
-        "label": "GetChanges — partial replication right"
-    },
-    EdgeKind.GET_CHANGES_ALL:     {
-        "color": "bright_red",
-        "icon":  "↻",
-        "label": "GetChangesAll — full DCSync capable"
-    },
-    EdgeKind.DCSYNC:              {
-        "color": "bold red",
-        "icon":  "☠",
-        "label": "DCSync — dump all domain hashes"
-    },
-}
-
-DEFAULT_NODE_COLOR = "white"
-DEFAULT_EDGE_META  = {"color": "white", "icon": "→", "label": "edge inconnu"}
-
-# TEMP — will move to services/scoring.py
-# See TODO:SCORING tag
-# ✅ Correct values — consistent with EDGE_META threat levels
-EDGE_SEVERITY: dict[EdgeKind, int] = {              #TODO:scoring
-    # ── Structural ────────────────────────────────
-    EdgeKind.MEMBER_OF           : 1,
-    EdgeKind.CONTAINS            : 1,
-    EdgeKind.TRUSTED_BY          : 1,   # info, but monitor for forest trusts
-
-    # ── Presence / remote access ──────────────────
-    EdgeKind.HAS_SESSION         : 2,
-    EdgeKind.CAN_RDP_TO          : 2,
-    EdgeKind.CAN_PS_REMOTE_TO    : 2,
-
-    # ── Delegation ────────────────────────────────
-    EdgeKind.ALLOWED_TO_DELEGATE : 3,
-
-    # ── Credential offline ────────────────────────
-    EdgeKind.KERBEROASTABLE      : 4,
-
-    # ── Write primitives ──────────────────────────
-    EdgeKind.FORCE_CHANGE_PW     : 5,
-    EdgeKind.WRITE_DACL          : 5,
-    EdgeKind.WRITE_OWNER         : 5,
-
-    # ── Stronger write primitives ─────────────────
-    EdgeKind.ADD_MEMBER          : 6,
-    EdgeKind.GENERIC_WRITE       : 6,
-    EdgeKind.READ_LAPS_PASS      : 6,
-
-    # ── Admin / ownership ─────────────────────────
-    EdgeKind.ADMIN_TO            : 7,
-    EdgeKind.OWNS                : 7,
-
-    # ── High impact ───────────────────────────────
-    EdgeKind.ALLOWED_TO_ACT      : 8,   # RBCD → full impersonation
-    EdgeKind.COERCE_TO_TGT       : 8,
-    EdgeKind.GENERIC_ALL         : 8,
-    EdgeKind.GET_CHANGES         : 8,
-
-    # ── DCSync path ───────────────────────────────
-    EdgeKind.GET_CHANGES_ALL     : 9,
-
-    # ── Critical ──────────────────────────────────
-    EdgeKind.DCSYNC              : 10,
-}
-
-# TODO:SCORING — migrate to services/scoring.py when ready
-def _worst_edge(path: Path) -> Edge | None: # TODO:SCORING
-    """Retourne l'edge la plus critique du path (selon EDGE_SEVERITY)."""
-    if not path.edges:
-        return None
-    return max(
-        path.edges,
-        key=lambda e: EDGE_SEVERITY.get(e.kind, 0)
-    )
-
-def format_node(node: Node, tag:str="") -> Text:  # TODO : format the tag better
-    """
-    Retourne un Text rich :  [USER] JOFFREY@SEVENKINGDOMS.LOCAL
-    node.kind est un NodeKind enum → on utilise .value pour le display.
-    """
-    color      = NODE_COLORS.get(node.kind, DEFAULT_NODE_COLOR)
-    kind_str  = node.kind.value  # "User", "Group", etc.
+def format_node(node: Node, tag: str = "") -> Text:
+    """Return rich Text:  [USER] JOFFREY@SEVENKINGDOMS.LOCAL"""
+    color = NODE_COLORS.get(node.kind, DEFAULT_NODE_COLOR)
+    kind_str = node.kind.value
 
     t = Text()
-    t.append(f"\n{tag} [{kind_str}]", style=f"bold {color}")
-    t.append(f" {node.objectid}",  style=color)
-    t.append(f" - {node.label}",  style=color)
+    if tag:
+        t.append(f"{tag} ", style="dim")
+    t.append(f"[{kind_str}]", style=f"bold {color}")
+    t.append(f" {node.label}", style=color)
     return t
+
 
 def format_edge(edge: Edge) -> Text:
-    """
-    Retourne :    ⚡ ──[HasSPNConfigured]──▶  (Kerberoast → crack hash offline)
-    edge.kind est un EdgeKind enum → on utilise .value pour le label BloodHound.
-    """
-    meta      = EDGE_META.get(edge.kind, DEFAULT_EDGE_META)
-    color     = meta["color"]
-    icon      = meta["icon"]
-    label     = meta["label"]
-    kind_str  = edge.kind.value   # "HasSPNConfigured", "DCSync", etc.
+    """Return rich Text:    ⚡ ──[HasSPNConfigured]──▶  (Kerberoast …)  [cost: 6]"""
+    meta = EDGE_META.get(edge.kind, DEFAULT_EDGE_META)
+    color = meta["color"]
+    icon = meta["icon"]
+    label = meta["label"]
+    kind_str = edge.kind.value
+
+    cost = edge_cost(edge)
 
     t = Text()
-    t.append(f"\n  {icon} ",         style=color)
+    t.append(f"\n  {icon} ", style=color)
     t.append(f"──[{kind_str}]──▶ ", style=f"bold {color}")
-    t.append(f"({label})",           style=f"italic {color}")
+    t.append(f"({label})", style=f"italic {color}")
+    t.append(f"  [cost: {cost}]", style="dim white")
     return t
 
-def format_path(path: Path, index: int = 1, privilege_level: PrivilegeLevel | None = None) -> Panel:
+
+def format_path(
+    path: Path,
+    index: int = 1,
+    privilege_level: PrivilegeLevel | None = None
+) -> Panel:
     """
-    Formate un Path complet comme un Panel rich.
-    Entrelace les nœuds et les edges dans l'ordre.
-    Severity of a path = how critical is where it leads (privilege level)
-    Cost of a path     = how hard is it to walk that path (edge costs)
-    - privilege_level drives the border color (how critical is the target)
-    - cost is displayed as info (how hard is the path)
+    Return a nicely formatted Panel showing the attack path step by step.
     """
-    #worst    = _worst_edge(path)
-    # severity = EDGE_SEVERITY.get(worst.kind, 0) if worst else 0
     cost = path_cost(path.edges)
 
-    # Border color = severity = privilege level of the TARGET
+    # Determine border color based on target privilege level
     if privilege_level is not None:
         if privilege_level <= PrivilegeLevel.DOMAIN_ADMIN:
-            border_color = "bold red"
+            border_style = "bold red"
         elif privilege_level <= PrivilegeLevel.SERVER_ADMIN:
-            border_color = "yellow"
+            border_style = "yellow"
         elif privilege_level <= PrivilegeLevel.DELEGATED_ADMIN:
-            border_color = "bright_yellow"
+            border_style = "bright_yellow"
         else:
-            border_color = "blue"
+            border_style = "blue"
     else:
-        border_color = "white"
+        border_style = "white"
 
-    # Header
-    content = Text()
-    content.append(f"Path #{index}", style="bold white")
-    content.append(f"  —  {path.length} hop(s)", style="dim")
-    content.append(f"  —  cost: {cost}", style="dim")
+    # Build the panel title (metadata line)
+    title_parts = Text()
+    title_parts.append(f"Path #{index}", style="bold white")
+    title_parts.append(f"  —  {path.length} hop(s)", style="dim")
+    title_parts.append(f"  —  cost: {cost}", style="dim")
     if privilege_level is not None:
-        content.append(
+        title_parts.append(
             f"  —  target tier: {privilege_level.name}",
-            style=f"bold {border_color}"
+            style=f"bold {border_style}"
         )
-    content.append("\n\n")
 
-    # Interleave nodes and edges
+    # Build the inside content, interleaving nodes and edges
+    content = Text()
     nodes = path.node_sequence()
 
     for i, node in enumerate(nodes):
+        # Print the node (indented a bit)
+        content.append("\n  ")
         content.append_text(format_node(node))
-        content.append("\n")
 
+        # Print the edge that leads to the next node (if any)
         if i < len(path.edges):
             content.append_text(format_edge(path.edges[i]))
-            content.append("\n")
 
-    return Panel(content, border_style=border_color, padding=(0, 2))
+    # Wrap everything in a Panel with the title
+    panel = Panel(
+        content,
+        title=title_parts,
+        border_style=border_style,
+        padding=(1, 2),
+        subtitle=f"From {path.source_node.label}  →  {path.goal_node.label}"
+    )
+    return panel

