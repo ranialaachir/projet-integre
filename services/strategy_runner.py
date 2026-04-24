@@ -1,9 +1,15 @@
 # services/strategy_runner.py
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from entities.exploit_result import ExploitResult
 from entities.edge import Edge
+from entities.node_kind import NodeKind
 from exceptions.hop_failed_error import HopFailedError
-from .parse_objects import parse_dict_node, parse_list_edge
+from services.parse_objects import parse_dict_node, parse_list_edge
+from references.cred_store import KNOWN_SECRETS
+
+
+# ── Node kinds that can actually authenticate ────────────────────────────────
+LOGON_KINDS = {NodeKind.USER, NodeKind.COMPUTER}
 
 
 @dataclass
@@ -28,9 +34,6 @@ def query_edges_for_relationship(
     src_label: str = "Base",
     dst_label: str = "Base",
 ) -> tuple[dict, list]:
-    """
-    Query BloodHound CE API using the path-return format.
-    """
     cypher = {
         "query": (
             f"MATCH p=(:{src_label})-[:{relationship}]->(:{dst_label})\n"
@@ -49,6 +52,36 @@ def query_edges_for_relationship(
     return nodes, edges
 
 
+def _attacker_sam(edge: Edge) -> str:
+    """Normalised SAM of the source node, same logic as Node.sam()."""
+    return edge.source_node.sam().lower().split("@")[0]
+
+
+def _check_attacker(edge: Edge) -> str | None:
+    """
+    Return a skip-reason string if we cannot use this attacker,
+    or None if everything looks fine.
+    """
+    attacker = edge.source_node
+
+    # ── 1. Must be a logon-capable node kind ────────────────────────────
+    if attacker.kind not in LOGON_KINDS:
+        return (
+            f"Source '{attacker.label}' is {attacker.kind.value} "
+            f"— not a logon principal."
+        )
+
+    # ── 2. Must have known credentials ──────────────────────────────────
+    sam = _attacker_sam(edge)
+    if sam not in KNOWN_SECRETS:
+        return (
+            f"No credentials known for '{sam}'. "
+            f"Add them to cred_store.KNOWN_SECRETS to exploit this edge."
+        )
+
+    return None   # all good
+
+
 def run_single_strategy(
     bh,
     strategy_cls,
@@ -59,10 +92,10 @@ def run_single_strategy(
     limit: int = 3,
     dry_run: bool = False,
 ) -> list[StrategyTestResult]:
-    results = []
+    results      = []
     strategy_name = strategy_cls.__name__
 
-    # ── Query Neo4j ──────────────────────────────────────────────────────
+    # ── Query BloodHound CE ──────────────────────────────────────────────
     raw_nodes, raw_edges = query_edges_for_relationship(
         bh, relationship, limit, src_label, dst_label
     )
@@ -88,23 +121,33 @@ def run_single_strategy(
             edge=edge,
         )
 
-        strategy = strategy_cls(edge=edge)
+        # ── Pre-flight: can we even authenticate as the attacker? ────────
+        skip_reason = _check_attacker(edge)
+        if skip_reason:
+            entry.skipped    = True
+            entry.skip_reason = skip_reason
+            results.append(entry)
+            continue
 
+        # ── Strategy sanity check ────────────────────────────────────────
+        strategy = strategy_cls(edge=edge)
         if not strategy.can_exploit():
-            entry.skipped = True
+            entry.skipped     = True
             entry.skip_reason = (
-                f"can_exploit() returned False for "
+                f"can_exploit() → False for "
                 f"{edge.source_node.label} → {edge.goal_node.label}"
             )
             results.append(entry)
             continue
 
+        # ── Dry-run mode ─────────────────────────────────────────────────
         if dry_run:
-            entry.skipped = True
+            entry.skipped     = True
             entry.skip_reason = "Dry run"
             results.append(entry)
             continue
 
+        # ── Actually exploit ─────────────────────────────────────────────
         try:
             entry.result = strategy.exploit(creds)
         except HopFailedError as exc:
