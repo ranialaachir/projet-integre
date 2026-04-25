@@ -11,6 +11,7 @@ KNOWN_SECRETS = {
     "robert.baratheon":  "iamthekingoftheworld",
     "petyr.baelish":     "@littlefinger@",
     "joffrey.baratheon": "1killerlion",
+    "vagrant": "vagrant"
 }
 
 def enrich_creds(creds: dict) -> dict:

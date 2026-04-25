@@ -1,4 +1,5 @@
 # main.py
+
 import os
 import sys
 from dotenv import load_dotenv
@@ -6,14 +7,18 @@ from dotenv import load_dotenv
 from entities.client import Client
 from entities.node import Node
 from entities.node_kind import NodeKind
-from entities.edge import Edge
-from entities.edge_kind import EdgeKind
 
 from utils.request import BHRequest
 from utils.platform import BACKEND
 
 from services.pathfinding import get_path
-from services.printing import print_check, print_done, print_error, print_warning, print_title, print_node, print_dict_node
+from services.printing import (
+    print_check, print_done,
+    print_error, print_warning, 
+    print_title, print_node, 
+    print_dict_node, print_level,
+    print_path
+)
 from services.reporting import *
 from services.parse_objects import *
 from services.enumeration import Enumerations
@@ -24,20 +29,39 @@ from exceptions.config_error import ConfigError
 from exceptions.hop_failed_error import HopFailedError
 
 from strategies.generic_all import GenericAllStrategy
-from strategies.read_laps   import ReadLAPSStrategy
-from strategies.admin_to    import AdminToStrategy
-from strategies.has_session import HasSessionStrategy
-from strategies.dc_sync     import DCSyncStrategy
+from strategies.dc_sync import DCSyncStrategy
+
+from services.scoring import path_cost
+from references.privilege_levels import classify, PrivilegeLevel
 
 load_dotenv()
 
+def _run_strategy(strategy, edge, creds: dict) -> None: # TODO: If seems interesting, add it as utils...
+    """Lance une stratégie et affiche le résultat de façon uniforme."""
+    print_check(f"Attacker : {edge.start.label}  ({edge.start.kind.value})")
+    print_check(f"Target   : {edge.target.label}  ({edge.target.kind.value})")
+    print_check(f"can_exploit() → {strategy.can_exploit()}")
+    print_check(f"Launching exploit — {edge.kind.value}")
 
-STRATEGY_MAP = {
-    EdgeKind.READ_LAPS_PASS: ReadLAPSStrategy(),
-    EdgeKind.ADMIN_TO:           AdminToStrategy(),
-    EdgeKind.HAS_SESSION:        HasSessionStrategy(),
-    EdgeKind.DCSYNC:             DCSyncStrategy(),
-    EdgeKind.GET_CHANGES_ALL:    DCSyncStrategy(),  # équivalent
+    try:
+        result = strategy.exploit(creds)
+        if result.was_executed():
+            print_done(f"Exploit succeeded! Technique: {result.technique}")
+            print_check(f"Output:\n{result.summary()}")
+            result.print_next_steps()
+        elif result.is_dry_run():
+            print_warning(f"Dry run / success=None:\n{result.output}")
+        else:
+            print_warning(f"Exploit failed:\n{result.output}")
+    except HopFailedError as e:
+        print_error(f"HopFailedError: {e}")
+
+# Credentials communs pour toutes les stratégies (lus depuis .env)
+CREDS = {
+    "dc_ip":    os.getenv("DC_IP",       "192.168.56.10"),
+    "domain":   os.getenv("AD_DOMAIN",   "sevenkingdoms.local"),
+    "username": os.getenv("AD_USERNAME", "cersei"),
+    "password": os.getenv("AD_PASSWORD", "cersei"),
 }
 
 # ─── 1. Load credentials ────────────────────────────────────────────────────
@@ -154,7 +178,7 @@ for u_data in user_nodes.values():
             print_warning(f"Path found but all edges were unknown kinds, skipping.")
             continue
         print_check(f"Path found! Length: {path.length} hop(s)")
-        console.print(format_path(path, index=1))
+        print_path(path, index=1)
         path_found = True
         break
     except NoPathError:
@@ -168,208 +192,232 @@ if not path_found:
 
 print_done("All checks complete.")
 
-# ─── 8. Find & exploit a GenericAll edge ───────────────────────────────────
-print_title("Step 7 — Testing GenericAll exploit")
+# ─── 8. Test ALL strategies on matching edges ─────────────────────────────
+# In your main test file
+from strategies import STRATEGY_REGISTRY
+from services.strategy_runner import run_single_strategy, StrategyTestResult
+from utils.platform import BACKEND
 
-# ── 8a. Détecter le backend ───────────────────────────────────────────────────
+print_title("Step 7 — Testing ALL exploit strategies")
 
 print_check(f"Backend detected: {BACKEND.name}")
-if BACKEND.name == "none":
-    print_error("No backend available. Install bloodyAD (Linux) or bloodyAD in WSL (Windows).")
-    print_warning("Skipping exploit test.")
-else:
-    # ── 8b. Chercher un edge GenericAll dans Neo4j ──────────────────────────
 
-    ga_result = bh.bh_post("/api/v2/graphs/cypher", { # GenericWrite
+if BACKEND.name == "none":
+    print_error(
+        "No backend available. Install bloodyAD (Linux) "
+        "or bloodyAD in WSL (Windows)."
+    )
+    print_warning("Skipping all exploit tests.")
+else:
+    creds = {
+        "dc_ip":    os.getenv("DC_IP",       "192.168.56.10"),
+        "domain":   os.getenv("AD_DOMAIN",   "sevenkingdoms.local"),
+        "username": os.getenv("AD_USERNAME",  "cersei"),
+        "password": os.getenv("AD_PASSWORD",  "cersei"),
+    }
+
+    all_results: list[StrategyTestResult] = []
+
+    for strategy_cls, relationship, src_label, dst_label in STRATEGY_REGISTRY:
+        print_title(f"Testing: {strategy_cls.__name__}  (edge: {relationship})")
+
+        entries = run_single_strategy(
+            bh=bh,
+            strategy_cls=strategy_cls,
+            relationship=relationship,
+            creds=creds,
+            src_label=src_label,
+            dst_label=dst_label,
+            limit=3,
+            dry_run=False,
+        )
+
+        for entry in entries:
+            all_results.append(entry)
+
+            if entry.skipped:
+                print_warning(f"  SKIP — {entry.skip_reason}")
+                continue
+
+            edge = entry.edge
+            src = edge.source_node.label if edge else "?"
+            dst = edge.goal_node.label   if edge else "?"
+
+            if entry.error:
+                print_error(f"  FAIL — {src} → {dst}")
+                print_error(f"         {entry.error}")
+                continue
+
+            res = entry.result
+            if res and res.success:
+                print_done(f"  OK   — {src} → {dst}  [{res.technique}]")
+                if res.notes:
+                    for line in res.notes.splitlines():
+                        print_check(f"         {line}")
+                if hasattr(res, "print_next_steps"):
+                    res.print_next_steps()
+            elif res and res.success is None:
+                print_warning(f"  DRY  — {src} → {dst}  (success=None)")
+            else:
+                print_warning(f"  FAIL — {src} → {dst}  (success=False)")
+
+    # ── Summary ──────────────────────────────────────────────────────────
+    print_title("Summary")
+
+    total    = len(all_results)
+    passed   = sum(1 for r in all_results if r.success)
+    failed   = sum(1 for r in all_results if r.error)
+    skipped  = sum(1 for r in all_results if r.skipped)
+
+    print_check(f"Total:   {total}")
+    print_done( f"Passed:  {passed}")
+    if failed:
+        print_error(f"Failed:  {failed}")
+    if skipped:
+        print_warning(f"Skipped: {skipped}")
+
+    print()
+    header = f"{'Strategy':<35} {'Edge':<20} {'Source → Target':<45} {'Result':<10}"
+    print(header)
+    print("─" * len(header))
+
+    for r in all_results:
+        name  = r.strategy_name[:34]
+        rel   = r.relationship[:19]
+
+        if r.edge:
+            pair = f"{r.edge.source_node.label} → {r.edge.goal_node.label}"
+        else:
+            pair = "—"
+        pair = pair[:44]
+
+        if r.skipped:
+            status = "SKIP"
+        elif r.error:
+            status = "FAIL"
+        elif r.success:
+            status = "OK"
+        else:
+            status = "FAIL"
+
+        print(f"{name:<35} {rel:<20} {pair:<45} {status:<10}")
+
+# ─── 10. High-value targets ───────────────────────────────────────────────────
+# We need : a reference table or lookup catalog
+print_title("Step 9 — High-value targets")
+
+tz_result = bh.bh_post("/api/v2/graphs/cypher", { # Tier Zero, enabled?
         "query": """
-            MATCH (src)-[r:GenericAll]->(dst)
-            WHERE src.enabled = true
-            RETURN src, r, dst
-            LIMIT 1
+            MATCH (zrt:Base)
+            WHERE (zrt:Tag_Tier_Zero)
+            RETURN zrt
         """,
         "include_properties": True
     })
 
-    ga_nodes = ga_result.get("data", {}).get("nodes", {}) if ga_result else {}
-    ga_edges = ga_result.get("data", {}).get("edges", []) if ga_result else []
+tz_nodes = tz_result.get("data", {}).get("nodes", {}) if tz_result else {}
 
-    if not ga_edges:
-        print_warning("No GenericAll edge found in the graph.") # /GenericWrite
-    elif not ga_nodes:
-        print_warning("No GenericAll nodes found in the graph.") # /GenericWrite
-    else:
-        nodes = parse_dict_node(n=ga_nodes)
-        edge = parse_list_edge(e=ga_edges, nodes=nodes)[0]
+if not tz_nodes:
+    print_warning("No High-value targets found.") # /GenericWrite
+else:
+    nodes = parse_dict_node(n=tz_nodes)
+    print_dict_node(nodes)
 
-        src_node = edge.start
-        dst_node = edge.target
-        print_check(f"Found edge: {edge.kind.value} — {src_node} → {dst_node}")
-        print_check(f"Attacker : {src_node.label}  ({src_node.kind.value})")
-        print_check(f"Target   : {dst_node.label}  ({dst_node.kind.value})")
+    # Define owned nodes (hardcoded for now — Vagrant)
+    # For each owned node, for each Tier Zero target, find path
+    # Score each path
+    # Show the best ones
 
-        strategy = GenericAllStrategy(edge=edge)
-        print_check(f"can_exploit() → {strategy.can_exploit()}")
+    # ──────────────────────────────────────────────────────────
+    # Step 11 — Define owned nodes (hardcoded for v1)
+    # ──────────────────────────────────────────────────────────
 
-        creds = {
-            "dc_ip":    os.getenv("DC_IP",       "192.168.56.10"),
-            "domain":   os.getenv("AD_DOMAIN",   "sevenkingdoms.local"),
-            "username": os.getenv("AD_USERNAME", "cersei"),
-            "password": os.getenv("AD_PASSWORD", "cersei"),
-            # "hashes": os.getenv("AD_HASHES"),  # LM:NT si PTH
-        }
+    print_title("Step 10 — Owned nodes")
 
-        print_check(f"Launching exploit — {edge.kind.value}")
+    # For now: we know vagrant's SID from the output
+    # In v2 this will come from the API or user input
+    owned_nodes: list[Node] = [
+        Node(
+            objectid="S-1-5-21-4100227132-2050190331-2295276406-1000",
+            kind=NodeKind.USER,
+            label="VAGRANT@SEVENKINGDOMS.LOCAL",
+            properties={"owned": True}
+        )
+    ]
 
-        result = strategy.exploit(creds)
-        try:
-            if result.was_executed():
-                print_done(f"Exploit succeeded! Technique: {result.technique}")
-                print_check(f"Output:\n{result.summary()}")
-                result.print_next_steps()
-            elif result.is_dry_run():
-                print_warning(f"Exploit returned success=None:\n{result.output}")
-            else:
-                print_warning(f"Exploit returned success=False:\n{result.output}")
-        except HopFailedError as e:
-            print_error(f"HopFailedError: {e}")
+    for node in owned_nodes:
+        print_node(node,"Owned") #success
 
 
+    # ──────────────────────────────────────────────────────────
+    # Step 12 — Classify targets by privilege level
+    # ──────────────────────────────────────────────────────────
 
-#nada test
-# ─── Helper commun pour lancer une stratégie depuis un edge BloodHound ────────
+    print_title("Step 11 — Classify targets")
 
-def _run_strategy(strategy, edge, creds: dict) -> None:
-    """Lance une stratégie et affiche le résultat de façon uniforme."""
-    print_check(f"Attacker : {edge.start.label}  ({edge.start.kind.value})")
-    print_check(f"Target   : {edge.target.label}  ({edge.target.kind.value})")
-    print_check(f"can_exploit() → {strategy.can_exploit()}")
-    print_check(f"Launching exploit — {edge.kind.value}")
-
-    try:
-        result = strategy.exploit(creds)
-        if result.was_executed():
-            print_done(f"Exploit succeeded! Technique: {result.technique}")
-            print_check(f"Output:\n{result.summary()}")
-            result.print_next_steps()
-        elif result.is_dry_run():
-            print_warning(f"Dry run / success=None:\n{result.output}")
+    # Group targets by privilege level and sort (most critical first)
+    classified: dict[PrivilegeLevel, list[Node]] = {}
+    for node in nodes.values():
+        level = classify(node)
+        if level not in classified.keys():
+            classified[level] = [node]
         else:
-            print_warning(f"Exploit failed:\n{result.output}")
-    except HopFailedError as e:
-        print_error(f"HopFailedError: {e}")
+            classified[level].append(node)
 
+    for level, nodes in classified.items():
+        print_level(level)
+        for node in nodes:
+            print_node(node)
 
-# Credentials communs pour toutes les stratégies (lus depuis .env)
-CREDS = {
-    "dc_ip":    os.getenv("DC_IP",       "192.168.56.10"),
-    "domain":   os.getenv("AD_DOMAIN",   "sevenkingdoms.local"),
-    "username": os.getenv("AD_USERNAME", "cersei"),
-    "password": os.getenv("AD_PASSWORD", "cersei"),
-}
+    # ──────────────────────────────────────────────────────────
+    # Step 13 — Find paths from owned → targets
+    # ──────────────────────────────────────────────────────────
 
+    print_title("Step 12 — Attack paths")
 
-# ─── 9. HasSession ───────────────────────────────────────────────────────────
-print_title("Step 8 — Testing HasSession exploit")
+    results = []
 
-hs_result = bh.bh_post("/api/v2/graphs/cypher", {
-    "query": """
-        MATCH (src:Computer)-[r:HasSession]->(dst:User)
-        WHERE dst.enabled = true
-        RETURN src, r, dst
-        LIMIT 1
-    """,
-    "include_properties": True
-})
+    for level, targets in classified.items():  # ?? We'll print all paths, but later only the best (!!)
+        for source in owned_nodes:
+            for target in targets:
+                # Skip if source IS the target
+                if source.objectid == target.objectid:
+                    continue
+                try:
+                    path = get_path(bh, source, target)
+                    cost = path_cost(path.edges)
+                    results.append({
+                        "source": source,
+                        "target": target,
+                        "privilege_level": level,
+                        "path": path,
+                        "cost": cost,
+                    })
+                    print_check(
+                        f"{source.label} → {target.label} "
+                        f"[{level.name}] cost={cost} hops={len(path.edges)}"
+                    )
+                except NoPathError:
+                    print_warning(f"No path: {source.label} → {target.label}")
+                except Exception as e:
+                    print_warning(f"Error: {source.label} → {target.label}: {e}")
 
-hs_nodes = hs_result.get("data", {}).get("nodes", {}) if hs_result else {}
-hs_edges = hs_result.get("data", {}).get("edges", []) if hs_result else []
+    # ──────────────────────────────────────────────────────────
+    # Step 14 — Rank and display best attack paths
+    # ──────────────────────────────────────────────────────────
 
-if not hs_edges or not hs_nodes:
-    print_warning("No HasSession edge found in the graph.")
-else:
-    nodes  = parse_dict_node(n=hs_nodes)
-    edge   = parse_list_edge(e=hs_edges, nodes=nodes)[0]
-    strategy = HasSessionStrategy(edge=edge)
-    print_check(f"Found edge: {edge.kind.value} — {edge.start.label} → {edge.target.label}")
-    _run_strategy(strategy, edge, CREDS)
+    print_title("Step 13 — Best attack paths")
 
+    if not results:
+        print_warning("No attack paths found from owned nodes.")
+    else:
+        # Sort: most critical target first, then cheapest path
+        results.sort(key=lambda r: (r["privilege_level"], r["cost"]))
 
-# ─── 10. AdminTo ─────────────────────────────────────────────────────────────
-print_title("Step 9 — Testing AdminTo exploit")
-
-at_result = bh.bh_post("/api/v2/graphs/cypher", {
-    "query": """
-        MATCH (src:User)-[r:AdminTo]->(dst:Computer)
-        WHERE src.enabled = true
-        RETURN src, r, dst
-        LIMIT 1
-    """,
-    "include_properties": True
-})
-
-at_nodes = at_result.get("data", {}).get("nodes", {}) if at_result else {}
-at_edges = at_result.get("data", {}).get("edges", []) if at_result else []
-
-if not at_edges or not at_nodes:
-    print_warning("No AdminTo edge found in the graph.")
-else:
-    nodes    = parse_dict_node(n=at_nodes)
-    edge     = parse_list_edge(e=at_edges, nodes=nodes)[0]
-    strategy = AdminToStrategy(edge=edge)
-    print_check(f"Found edge: {edge.kind.value} — {edge.start.label} → {edge.target.label}")
-    _run_strategy(strategy, edge, CREDS)
-
-
-# ─── 11. ReadLAPS ────────────────────────────────────────────────────────────
-print_title("Step 10 — Testing ReadLAPS exploit")
-
-laps_result = bh.bh_post("/api/v2/graphs/cypher", {
-    "query": """
-        MATCH (src)-[r:ReadLAPSPassword]->(dst:Computer)
-        WHERE src.enabled = true
-        RETURN src, r, dst
-        LIMIT 1
-    """,
-    "include_properties": True
-})
-
-laps_nodes = laps_result.get("data", {}).get("nodes", {}) if laps_result else {}
-laps_edges = laps_result.get("data", {}).get("edges", []) if laps_result else []
-
-if not laps_edges or not laps_nodes:
-    print_warning("No ReadLAPSPassword edge found in the graph.")
-else:
-    nodes    = parse_dict_node(n=laps_nodes)
-    edge     = parse_list_edge(e=laps_edges, nodes=nodes)[0]
-    strategy = ReadLAPSStrategy(edge=edge)
-    print_check(f"Found edge: {edge.kind.value} — {edge.start.label} → {edge.target.label}")
-    _run_strategy(strategy, edge, CREDS)
-
-
-# ─── 12. DCSync ──────────────────────────────────────────────────────────────
-print_title("Step 11 — Testing DCSync exploit")
-
-dc_result = bh.bh_post("/api/v2/graphs/cypher", {
-    "query": """
-        MATCH (src)-[r:DCSync|GetChangesAll]->(dst:Domain)
-        WHERE src.enabled = true
-        RETURN src, r, dst
-        LIMIT 1
-    """,
-    "include_properties": True
-})
-
-dc_nodes = dc_result.get("data", {}).get("nodes", {}) if dc_result else {}
-dc_edges = dc_result.get("data", {}).get("edges", []) if dc_result else []
-
-if not dc_edges or not dc_nodes:
-    print_warning("No DCSync / GetChangesAll edge found in the graph.")
-else:
-    nodes    = parse_dict_node(n=dc_nodes)
-    edge     = parse_list_edge(e=dc_edges, nodes=nodes)[0]
-    strategy = DCSyncStrategy(edge=edge)
-    print_check(f"Found edge: {edge.kind.value} — {edge.start.label} → {edge.target.label}")
-    _run_strategy(strategy, edge, CREDS)
-
-
-print_done("All strategy tests complete.")
+        for i, r in enumerate(results, 1):
+            panel = format_path(
+                path=r["path"],
+                index=i,
+                privilege_level=r["privilege_level"],
+            )
+            console.print(panel)

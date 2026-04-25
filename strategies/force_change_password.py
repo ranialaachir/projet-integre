@@ -1,4 +1,4 @@
-# strategies/add_member.py
+# strategies/force_change_password.py
 from dataclasses import dataclass
 
 from .bloodyad_base import BloodyADBase
@@ -9,13 +9,13 @@ from entities.exploit_result import ExploitResult
 
 
 @dataclass
-class AddMemberStrategy(ADTechniquesMixin, BloodyADBase):
+class ForceChangePasswordStrategy(ADTechniquesMixin, BloodyADBase):
     def can_exploit(self) -> bool:
         return (
-            self.edge.kind == EdgeKind.ADD_MEMBER
-            and self.target.kind == NodeKind.GROUP
+            self.edge.kind == EdgeKind.FORCE_CHANGE_PW
+            and self.target.kind == NodeKind.USER
         )
 
     def exploit(self, creds: dict) -> ExploitResult:
         creds = self._prepare_creds(creds)
-        return self._do_add_member(creds)
+        return self._do_force_change_password(creds)

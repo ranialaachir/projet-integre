@@ -10,3 +10,4 @@ class NodeKind(Enum):
 	GROUP = "Group"
 	OU = "OU"
 	USER = "User"
+	BASE = "Base"
