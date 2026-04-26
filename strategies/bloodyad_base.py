@@ -45,13 +45,13 @@ class BloodyADBase(ExploitStrategy, ABC):
             )
         return merged
 
-    def _run_bloodyad(self, creds: dict, subcommand: list[str], label: str) -> str:
+    def _run_bloodyad(self, creds: dict, subcommand: list[str], label: str, cwd: str = None ) -> str:
         print_check(
             f"{label} [{BACKEND.name}]: "
             f"{self.attacker.label} ──▶ {self.target.label}"
         )
 
-        ok, output = run_tool(bloodyad_cmd(creds, subcommand))
+        ok, output = run_tool(bloodyad_cmd(creds, subcommand), cwd=cwd)
         if not ok:
             raise HopFailedError(self.edge, f"{label} failed:\n{output}")
         return output

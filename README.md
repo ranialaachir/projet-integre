@@ -231,8 +231,29 @@ strategies/
 │   ├── credential_techniques.py ← dcsync, laps, secretsdump
 │   └── exec_techniques.py       ← rdp, psremote, wmi, psexec
 ```
+## BloodyAD
+```
+BloodyADBase (has exploit() with fallback chain)
+├── ForceChangePasswordStrategy    ← bloodyAD: set password
+├── AddMemberStrategy              ← bloodyAD: add groupMember
+├── GenericAllStrategy             ← bloodyAD: dispatches based on target
+├── GenericWriteStrategy           ← bloodyAD: dispatches based on target
+├── WriteDaclStrategy              ← bloodyAD: add dcsync / add genericAll
+├── WriteOwnerStrategy             ← bloodyAD: set owner
+├── AddKeyCredentialLinkStrategy   ← bloodyAD: add shadowCredentials
+├── WriteSPNStrategy               ← bloodyAD: set servicePrincipalName
+└── OwnsStrategy                   ← same as WriteOwner (you're already owner)
+```
 
 ## ldap Techniques
+```
+project/
+├── .gitignore
+├── tmp/                    ← gitignored
+│   └── shadow_creds/       ← all PFX/ccache files go here
+│       ├── .gitkeep        ← keeps folder in git without contents
+│       └── (generated files, ignored)
+```
 
 ### Mapping
 
