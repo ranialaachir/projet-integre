@@ -31,6 +31,9 @@ def print_check(check:str) -> None:
 def print_done(done:str) -> None:
     _print_element('✓',done,'green')
 
+def print_info(info:str) -> None:
+    _print_element('!',info,'#87CEEB')
+
 def print_node(node:Node, tag:str="") -> None:
     console.print(format_node(node, tag))
 

@@ -9,13 +9,8 @@ from .read_laps import ReadLAPSStrategy
  
 # (strategy_class, cypher_relationship, source_label, target_label)
 STRATEGY_REGISTRY = [
-    (AddMemberStrategy,           "AddMember",           "Base",      "Group"),
-    (ForceChangePasswordStrategy, "ForceChangePassword", "Base",      "User"),
-    (GenericAllStrategy,          "GenericAll",          "Base",      "Base"),
-    (GenericWriteStrategy,        "GenericWrite",        "Base",      "Base"),
-    (DCSyncStrategy,              "DCSync",              "Base",      "Domain"),
-    (DCSyncStrategy,              "GetChangesAll",       "Base",      "Domain"),
-    (HasSessionStrategy,          "HasSession",          "Computer",  "User"),
-    (AdminToStrategy,             "AdminTo",             "Base",      "Computer"),
-    (ReadLAPSStrategy,            "ReadLAPSPassword",    "Base",      "Computer"),
+    (AddMemberStrategy,             "AddMember",            "Base",  "Group"),
+    (ForceChangePasswordStrategy,   "ForceChangePassword",  "Base",  "User"),
+    (GenericAllStrategy,            "GenericAll",           "Base",  "Base"),
+    (GenericWriteStrategy,          "GenericWrite",         "Base",  "Base")
 ]
