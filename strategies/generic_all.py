@@ -7,28 +7,37 @@ from entities.edge_kind import EdgeKind
 from entities.node_kind import NodeKind
 from entities.exploit_result import ExploitResult
 from exceptions.hop_failed_error import HopFailedError
+from services.printing import print_info, print_warning
 
 # TODO : Add _targeted_kerberoast() & _shadow_credentials_attack
 
 @dataclass
 class GenericAllStrategy(ADTechniquesMixin, BloodyADBase):
+    """
+        GenericAll is a permission, not a technique.
+        It unlocks different techniques based on target type.
+        
+        Priority order (stealth first), This is the fallback chain :
+        - User: ShadowCredentials → ForceChangePassword → TargetedKerberoast
+        - Group: AddMember
+        - Computer: ShadowCredentials → RBCD
+    """
     _DISPATCH = {
-        NodeKind.GROUP: ADTechniquesMixin._do_add_member,
-        NodeKind.USER: ADTechniquesMixin._do_force_change_password,
-        NodeKind.COMPUTER: ADTechniquesMixin._do_rbcd,
+        NodeKind.USER: [
+            ("ShadowCredentials", ADTechniquesMixin._do_shadow_credentials),
+            ("ForceChangePassword", ADTechniquesMixin._do_force_change_password),
+            ("TargetedKerberoast", ADTechniquesMixin._do_targeted_kerberoast),
+        ],
+        NodeKind.GROUP: [
+            ("AddMember", ADTechniquesMixin._do_add_member),
+        ],
+        NodeKind.COMPUTER: [
+            ("ShadowCredentials", ADTechniquesMixin._do_shadow_credentials),
+            ("RBCD", ADTechniquesMixin._do_rbcd),
+        ],
     }
 
     def can_exploit(self) -> bool:
-        return self.edge.kind == EdgeKind.GENERIC_ALL
+        return self.edge.kind == EdgeKind.GENERIC_ALL 
 
-    def exploit(self, creds: dict) -> ExploitResult:
-        creds = self._prepare_creds(creds)
-
-        action = self._DISPATCH.get(self.target.kind)
-        if action is None:
-            raise HopFailedError(
-                self.edge,
-                f"GenericAll on {self.target.kind.value} — no known technique yet"
-            )
-
-        return action(self, creds)
+# ShadowCredentials requires PKINIT support.
