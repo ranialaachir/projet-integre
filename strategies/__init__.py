@@ -5,6 +5,7 @@ from .generic_write import GenericWriteStrategy
 from .write_dacl import WriteDaclStrategy
 from .write_owner import WriteOwnerStrategy
 from .owns import OwnsStrategy
+from .read_laps import ReadLAPSStrategy
 
 # (strategy_class, cypher_relationship, source_label, target_label)
 STRATEGY_REGISTRY = [
@@ -15,4 +16,5 @@ STRATEGY_REGISTRY = [
     (WriteDaclStrategy,             "WriteDACL",            "Base",  "Base"),
     (WriteOwnerStrategy,            "WriteOwner",           "Base",  "Base"),
     (OwnsStrategy,                  "Owns",                 "Base",  "Base"),
+    (ReadLAPSStrategy,              "ReadLAPSPassword",     "Base",  "Computer"),
 ]
