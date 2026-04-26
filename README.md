@@ -85,6 +85,17 @@ AD_DOMAIN=sevenkingdoms.local
 To generate a token: BloodHound UI → top right menu → **API Tokens** → Create Token.
 
 ---
+## Project Naming Conventions
+```
+<type>/<short-description>
+
+feature/write-dacl-strategy
+feature/kerberos-techniques
+fix/shadow-creds-cleanup
+refactor/bloodyad-base
+docs/readme-update
+````
+---
 
 ## Project Structure
 
