@@ -9,5 +9,5 @@ STRATEGY_REGISTRY = [
     (AddMemberStrategy,             "AddMember",            "Base",  "Group"),
     (ForceChangePasswordStrategy,   "ForceChangePassword",  "Base",  "User"),
     (GenericAllStrategy,            "GenericAll",           "Base",  "Base"),
-    (GenericWriteStrategy,          "GenericWrite",         "Base",  "Base"),
+    (GenericWriteStrategy,          "GenericWrite",         "Base",  "Base")
 ]

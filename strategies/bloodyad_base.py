@@ -3,16 +3,20 @@ from abc import ABC
 from dataclasses import dataclass
 
 from .exploit_strategy import ExploitStrategy
+
 from entities.edge import Edge
+
 from exceptions.hop_failed_error import HopFailedError
+
 from services.printing import print_check
+
 from utils.platform import BACKEND
 from utils.runner import run_tool
 from utils.bloodyad import bloodyad_cmd
+
 from references.cred_store import enrich_creds
 
 HARDCODED_PASSWORD = "AutoPwn1344!"
-
 
 @dataclass
 class BloodyADBase(ExploitStrategy, ABC):
@@ -21,7 +25,6 @@ class BloodyADBase(ExploitStrategy, ABC):
     def _prepare_creds(self, creds: dict) -> dict:
         attacker_sam = self.attacker.sam()
         merged = {**creds, "username": attacker_sam}
-
         try:
             merged = enrich_creds(merged)
         except (KeyError, ValueError):
@@ -34,7 +37,7 @@ class BloodyADBase(ExploitStrategy, ABC):
         if BACKEND.name == "none":
             raise HopFailedError(
                 self.edge,
-                "No backend available. Run: pip install bloodyAD "
+                "No backend available. Run: pip install bloodyAD"
                 "(or on Windows: wsl pip install bloodyAD)"
             )
         return merged

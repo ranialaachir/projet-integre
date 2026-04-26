@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 
 from .bloodyad_base import BloodyADBase
-from .ad_techniques import ADTechniquesMixin
+from .techniques.ldap_techniques import ADTechniquesMixin
 from entities.edge_kind import EdgeKind
 from entities.node_kind import NodeKind
 from entities.exploit_result import ExploitResult
