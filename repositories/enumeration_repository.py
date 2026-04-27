@@ -43,11 +43,12 @@ class EnumerationRepository(BaseRepository): # Can be a sub folder if it gets to
     
     # enumerate high value nodes
     def get_high_value_nodes(self, kind:NodeKind=NodeKind.BASE):
-        query = ( #$src_id, $tgt_id with parameters
-            f"MATCH (zrt:{kind.value}) WHERE (zrt:tag_Zero_Tier) RETURN zrt"
-        )
         tz_result = self.bh_request.bh_post("/api/v2/graphs/cypher", { # cypher query can be a util maybe?
-            "query": query,
+            "query": f"""
+                    MATCH (zrt:{kind.value})
+                    WHERE (zrt:Tag_Tier_Zero)
+                    RETURN zrt
+                """,
             "include_properties": True
         })
         tz_nodes = tz_result.get("data", {}).get("nodes", {}) if tz_result else {}

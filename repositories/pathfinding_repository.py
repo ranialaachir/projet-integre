@@ -2,7 +2,6 @@
 
 from .base_repository import BaseRepository
 from exceptions.no_path_error import NoPathError
-from exceptions.api_error import ApiError
 from entities.path import Path
 from entities.node import Node
 from services.parse_objects import parse_path
@@ -22,10 +21,7 @@ class PathfindingRepository(BaseRepository):
 			"query": query,
 			"include_properties": True
 		})
-        
-        if path_result is None:
+        data = path_result.get("data", {})
+        if data is None:
             raise NoPathError(source_node, goal_node)
-        path = path_result.get("data", {}).get("nodes", {}) if path_result else {} # this is repeated a lot, it should a util function :)
-        if path is None:
-            raise ApiError(0, "/api/v2/graphs/cypher", f"Could not find any real path.")
-        return parse_path(source_node, goal_node, path)
+        return parse_path(source_node, goal_node, data)

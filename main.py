@@ -126,12 +126,8 @@ for source in enabled_user_nodes.values():
         break
     except NoPathError:
         print_warning(f"No path from {source.label}, trying next...")
-    except ApiError as e:
-        print_error(str(e))
-        sys.exit(1)
     except AutoPwnException as e:
         print_error(f"Tool error: {e}")
-        sys.exit(1)
 
 if not path_found:
     print_warning("No path found from any of the sampled users.")

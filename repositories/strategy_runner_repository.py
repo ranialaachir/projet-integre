@@ -92,7 +92,7 @@ class StrategyRunnerRepository(BaseRepository):
 
         # ── Query BloodHound CE ──────────────────────────────────────────────
         raw_nodes, raw_edges = self.query_edges_for_relationship(
-            self.bh_request, relationship, limit, src_label, dst_label
+            relationship, limit, src_label, dst_label
         )
 
         if not raw_edges or not raw_nodes:
