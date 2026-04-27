@@ -1,35 +1,43 @@
-# services/strategy_runner.py
+# repositories/strategy_runner_repository.py
+
 from dataclasses import dataclass
 from entities.exploit_result import ExploitResult
 from entities.edge import Edge
-from entities.node_kind import NodeKind
 from exceptions.hop_failed_error import HopFailedError
 from services.parse_objects import parse_dict_node, parse_list_edge
-from references.cred_store import KNOWN_SECRETS
-from .base_repository import BaseRepository
-from .base_repository import CREDS
+from .base_repository import BaseRepository, CREDS
+from .acting_principal_repository import ActingPrincipalResolver, PrincipalResolution
 
-# ── Node kinds that can actually authenticate ────────────────────────────────
-LOGON_KINDS = {NodeKind.USER, NodeKind.COMPUTER}
 
 @dataclass
 class StrategyTestResult:
-    relationship:   str
-    strategy_name:  str
-    edge:           Edge | None          = None
-    result:         ExploitResult | None = None
-    error:          str | None           = None
-    skipped:        bool                 = False
-    skip_reason:    str                  = ""
+    relationship:  str
+    strategy_name: str
+    edge:          Edge | None          = None
+    result:        ExploitResult | None = None
+    error:         str | None           = None
+    skipped:       bool                 = False
+    skip_reason:   str                  = ""
 
     @property
     def success(self) -> bool:
         return self.result is not None and self.result.success is True
 
+
 class StrategyRunnerRepository(BaseRepository):
-    def query_edges_for_relationship( 
-        self, relationship: str, limit: int = 3,
-        src_label: str = "Base", dst_label: str = "Base",
+
+    def __init__(self):
+        super().__init__()
+        self._resolver = ActingPrincipalResolver()
+
+    # ── Query ────────────────────────────────────────────────────────────────
+
+    def query_edges_for_relationship(
+        self,
+        relationship: str,
+        limit: int = 3,
+        src_label: str = "Base",
+        dst_label: str = "Base",
     ) -> tuple[dict, list]:
         cypher = {
             "query": (
@@ -39,7 +47,6 @@ class StrategyRunnerRepository(BaseRepository):
             ),
             "include_properties": True,
         }
-
         raw = self.bh_request.bh_post("/api/v2/graphs/cypher", cypher)
         if not raw or "data" not in raw:
             return {}, []
@@ -48,49 +55,31 @@ class StrategyRunnerRepository(BaseRepository):
         edges = raw["data"].get("edges", [])
         return nodes, edges
 
+    # ── Resolution ───────────────────────────────────────────────────────────
 
-    def _attacker_sam(self,edge: Edge) -> str:
-        """Normalised SAM of the source node, same logic as Node.sam()."""
-        return edge.source_node.sam().lower().split("@")[0]
-
-
-    def _check_attacker(self,edge: Edge) -> str | None:
+    def _resolve(self, edge: Edge) -> PrincipalResolution:
         """
-        Return a skip-reason string if we cannot use this attacker,
-        or None if everything looks fine.
+        Try to find a usable logon principal for edge.source_node.
+        Handles User, Computer, and Group (recursive member lookup).
         """
-        attacker = edge.source_node
+        return self._resolver.resolve(edge.source_node, CREDS)
 
-        # ── 1. Must be a logon-capable node kind ────────────────────────────
-        if attacker.kind not in LOGON_KINDS:
-            return (
-                f"Source '{attacker.label}' is {attacker.kind.value} "
-                f"— not a logon principal."
-            )
-
-        # ── 2. Must have known credentials ──────────────────────────────────
-        sam = self._attacker_sam(edge)
-        if sam not in KNOWN_SECRETS:
-            return (
-                f"No credentials known for '{sam}'. "
-                f"Add them to cred_store.KNOWN_SECRETS to exploit this edge."
-            )
-
-        return None   # all good
-
+    # ── Main runner ──────────────────────────────────────────────────────────
 
     def run_single_strategy(
-        self, strategy_cls,
+        self,
+        strategy_cls,
         relationship: str,
-        src_label: str = "Base",
-        dst_label: str = "Base",
-        limit: int = 3,
-        dry_run: bool = False,
+        src_label:    str  = "Base",
+        dst_label:    str  = "Base",
+        limit:        int  = 3,
+        dry_run:      bool = False,
     ) -> list[StrategyTestResult]:
-        results      = []
+
+        results       = []
         strategy_name = strategy_cls.__name__
 
-        # ── Query BloodHound CE ──────────────────────────────────────────────
+        # ── Query BloodHound ─────────────────────────────────────────────────
         raw_nodes, raw_edges = self.query_edges_for_relationship(
             relationship, limit, src_label, dst_label
         )
@@ -116,11 +105,11 @@ class StrategyRunnerRepository(BaseRepository):
                 edge=edge,
             )
 
-            # ── Pre-flight: can we even authenticate as the attacker? ────────
-            skip_reason = self._check_attacker(edge)
-            if skip_reason:
-                entry.skipped    = True
-                entry.skip_reason = skip_reason
+            # ── Resolve acting principal (User / Computer / Group member) ────
+            resolution = self._resolve(edge)
+            if not resolution.ok:
+                entry.skipped     = True
+                entry.skip_reason = resolution.reason
                 results.append(entry)
                 continue
 
@@ -135,16 +124,16 @@ class StrategyRunnerRepository(BaseRepository):
                 results.append(entry)
                 continue
 
-            # ── Dry-run mode ─────────────────────────────────────────────────
+            # ── Dry-run ──────────────────────────────────────────────────────
             if dry_run:
                 entry.skipped     = True
                 entry.skip_reason = "Dry run"
                 results.append(entry)
                 continue
 
-            # ── Actually exploit ─────────────────────────────────────────────
+            # ── Exploit ──────────────────────────────────────────────────────
             try:
-                entry.result = strategy.exploit(CREDS)
+                entry.result = strategy.exploit(resolution.creds)
             except HopFailedError as exc:
                 entry.error = str(exc)
             except Exception as exc:

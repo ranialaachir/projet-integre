@@ -15,7 +15,8 @@ KNOWN_SECRETS = {
     "krbtgt"            : ":50687f0656d56c91897cf952306a00b8",
     "tywin.lannister"   : ":af52e9ec3471788111a6308abff2e9b7",
     "cersei.lannister"  : "il0vejaime",
-    "robert.baratheon"  : "iamthekingoftheworld",
+    "jaime.lannister"   : "AutoPwn1344!",
+    "robert.baratheon"  : "iamthekingoftheworld", # ADD EXCEPTIoNSSSSS TO CLEAN UP
     "petyr.baelish"     : "@littlefinger@",
     "joffrey.baratheon" : "1killerlion",
     "vagrant"           : "vagrant"

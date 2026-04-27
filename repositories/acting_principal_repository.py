@@ -95,22 +95,36 @@ class ActingPrincipalResolver(BaseRepository):
             ok=False,
             reason=f"Source is {kind.name}, not a logon principal",
         )
-    
-    def _find_group_members(self,group_name:str) -> dict[str, Node] | None:
+        
+    def _find_group_members(self, group_name: str) -> dict[str, Node]:
+        from services.parse_objects import parse_dict_node
+
+        query = f"""
+            MATCH (u)
+            WHERE (u:User OR u:Computer)
+            AND (u)-[:MemberOf*1..10]->(:Group {{name: '{group_name}'}})
+            RETURN u
+        """
+
+        print(f"DEBUG group_name repr  : {group_name!r}")
+        print(f"DEBUG group_name bytes : {group_name.encode()}")
+        print(f"DEBUG query            :\n{query}")
+
+        payload = {
+            "query": query,
+            "include_properties": True,
+        }
+
+        print(f"DEBUG payload          : {payload}")
+
         response = self.bh_request.bh_post(
             "/api/v2/graphs/cypher",
-            {
-                "query": f"""
-                    MATCH (u)
-                    WHERE (u:User OR u:Computer)
-                      AND (u)-[:MemberOf*1..10]->(:Group {{name: '{group_name}'}})
-                    RETURN u
-                """,
-                "include_properties": True,
-            },
+            payload,
         )
 
-        if not response:
+        print(f"DEBUG response         : {response}")
+
+        if response is None:
             return {}
 
         raw_nodes = response.get("data", {}).get("nodes", {})

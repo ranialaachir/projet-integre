@@ -1,5 +1,7 @@
 # main.py
 
+# Add ping to test connectivity
+
 import sys
 from dotenv import load_dotenv
 
@@ -139,89 +141,93 @@ if BACKEND.name == "none":
     sys.exit(1)
 
 print_check(f"Backend detected: {BACKEND.name}")
-all_results: list[StrategyTestResult] = []
+try:
+    all_results: list[StrategyTestResult] = []
 
-for strategy_cls, relationship, src_label, dst_label in STRATEGY_REGISTRY:
-    print_title(f"Testing: {strategy_cls.__name__}  (edge: {relationship})")
+    for strategy_cls, relationship, src_label, dst_label in STRATEGY_REGISTRY:
+        print_title(f"Testing: {strategy_cls.__name__}  (edge: {relationship})")
 
-    entries = strat_runner_repo.run_single_strategy(
-        strategy_cls=strategy_cls,
-        relationship=relationship,
-        src_label=src_label,
-        dst_label=dst_label,
-        limit=3,
-        dry_run=False,
-    )
+        entries = strat_runner_repo.run_single_strategy(
+            strategy_cls=strategy_cls,
+            relationship=relationship,
+            src_label=src_label,
+            dst_label=dst_label,
+            limit=3,
+            dry_run=False,
+        )
 
-    for entry in entries:
-        all_results.append(entry)
+        for entry in entries:
+            all_results.append(entry)
 
-        if entry.skipped:
-            print_warning(f"  SKIP — {entry.skip_reason}")
-            continue
+            if entry.skipped:
+                print_warning(f"  SKIP — {entry.skip_reason}")
+                continue
 
-        edge = entry.edge
-        src = edge.source_node.label if edge else "?"
-        dst = edge.goal_node.label   if edge else "?"
+            edge = entry.edge
+            src = edge.source_node.label if edge else "?"
+            dst = edge.goal_node.label   if edge else "?"
 
-        if entry.error:
-            print_error(f"  FAIL — {src} → {dst}")
-            print_error(f"         {entry.error}")
-            continue
+            if entry.error:
+                print_error(f"  FAIL — {src} → {dst}")
+                print_error(f"         {entry.error}")
+                continue
 
-        res = entry.result
-        if res and res.success:
-            print_done(f"  OK   — {src} → {dst}  [{res.technique}]")
-            if res.notes:
-                for line in res.notes.splitlines():
-                    print_check(f"         {line}")
-            if hasattr(res, "print_next_steps"):
-                res.print_next_steps()
-        elif res and res.success is None:
-            print_warning(f"  DRY  — {src} → {dst}  (success=None)")
+            res = entry.result
+            if res and res.success:
+                print_done(f"  OK   — {src} → {dst}  [{res.technique}]")
+                if res.notes:
+                    for line in res.notes.splitlines():
+                        print_check(f"         {line}")
+                if hasattr(res, "print_next_steps"):
+                    res.print_next_steps()
+            elif res and res.success is None:
+                print_warning(f"  DRY  — {src} → {dst}  (success=None)")
+            else:
+                print_warning(f"  FAIL — {src} → {dst}  (success=False)")
+
+    # ── Summary ──────────────────────────────────────────────────────────
+    print_title("Summary")
+
+    total    = len(all_results)
+    passed   = sum(1 for r in all_results if r.success)
+    failed   = sum(1 for r in all_results if r.error)
+    skipped  = sum(1 for r in all_results if r.skipped)
+
+    print_check(f"Total:   {total}")
+    print_done( f"Passed:  {passed}")
+    if failed:
+        print_error(f"Failed:  {failed}")
+    if skipped:
+        print_warning(f"Skipped: {skipped}")
+
+    print()
+    header = f"{'Strategy':<35} {'Edge':<20} {'Source → Target':<45} {'Result':<10}"
+    print(header)
+    print("─" * len(header))
+
+    for r in all_results:
+        name  = r.strategy_name[:34]
+        rel   = r.relationship[:19]
+
+        if r.edge:
+            pair = f"{r.edge.source_node.label} → {r.edge.goal_node.label}"
         else:
-            print_warning(f"  FAIL — {src} → {dst}  (success=False)")
+            pair = "—"
+        pair = pair[:44]
 
-# ── Summary ──────────────────────────────────────────────────────────
-print_title("Summary")
+        if r.skipped:
+            status = "SKIP"
+        elif r.error:
+            status = "FAIL"
+        elif r.success:
+            status = "OK"
+        else:
+            status = "FAIL"
 
-total    = len(all_results)
-passed   = sum(1 for r in all_results if r.success)
-failed   = sum(1 for r in all_results if r.error)
-skipped  = sum(1 for r in all_results if r.skipped)
-
-print_check(f"Total:   {total}")
-print_done( f"Passed:  {passed}")
-if failed:
-    print_error(f"Failed:  {failed}")
-if skipped:
-    print_warning(f"Skipped: {skipped}")
-
-print()
-header = f"{'Strategy':<35} {'Edge':<20} {'Source → Target':<45} {'Result':<10}"
-print(header)
-print("─" * len(header))
-
-for r in all_results:
-    name  = r.strategy_name[:34]
-    rel   = r.relationship[:19]
-
-    if r.edge:
-        pair = f"{r.edge.source_node.label} → {r.edge.goal_node.label}"
-    else:
-        pair = "—"
-    pair = pair[:44]
-
-    if r.skipped:
-        status = "SKIP"
-    elif r.error:
-        status = "FAIL"
-    elif r.success:
-        status = "OK"
-    else:
-        status = "FAIL"
-
-    print(f"{name:<35} {rel:<20} {pair:<45} {status:<10}")
+        print(f"{name:<35} {rel:<20} {pair:<45} {status:<10}")
+except Exception as e:
+    print_error(e)
+    sys.exit(1)
 
 # ─── 10. High-value targets ───────────────────────────────────────────────────
 # We need : a reference table or lookup catalog
