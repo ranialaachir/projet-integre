@@ -9,13 +9,7 @@ from entities.node_kind import NodeKind
 from utils.platform import BACKEND
 
 from repositories.pathfinding_repository import PathfindingRepository
-from services.printing import (
-    print_check, print_done,
-    print_error, print_warning, 
-    print_title, print_node, 
-    print_dict_node, print_level,
-    print_path, print_info
-)
+from services.printing import *
 from services.reporting import *
 from services.parse_objects import *
 from repositories.enumeration_repository import EnumerationRepository
@@ -246,10 +240,6 @@ except RuntimeError as e:
 # ──────────────────────────────────────────────────────────
 
 print_title("Step 10 — Owned nodes")
-
-# For now: we know vagrant's SID from the output
-# In v2 this will come from the API or user input
-
 owned_nodes: list[Node] = [
     Node(
         objectid="S-1-5-21-4100227132-2050190331-2295276406-1000",
@@ -268,7 +258,6 @@ for node in owned_nodes:
 # ──────────────────────────────────────────────────────────
 
 print_title("Step 11 — Classify targets")
-
 # Group targets by privilege level and sort (most critical first)
 classified: dict[PrivilegeLevel, list[Node]] = {}
 for node in tz_nodes.values():

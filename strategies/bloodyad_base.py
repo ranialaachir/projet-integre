@@ -1,10 +1,11 @@
 # strategies/bloodyad_base.py
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .exploit_strategy import ExploitStrategy
 
 from entities.edge import Edge
+from entities.node import Node
 from entities.exploit_result import ExploitResult
 
 from exceptions.hop_failed_error import HopFailedError
@@ -17,24 +18,52 @@ from utils.bloodyad import bloodyad_cmd
 
 from references.cred_store import enrich_creds
 
+from repositories.acting_principal_repository import ActingPrincipalResolver, PrincipalResolution
+from typing import Optional
+
 HARDCODED_PASSWORD = "AutoPwn1344!"
 
 @dataclass
 class BloodyADBase(ExploitStrategy, ABC):
     edge: Edge
+    _resolution: Optional[PrincipalResolution] = field(default=None, init=False, repr=False)
 
-    # Do NOT define _DISPATCH here
+    @property
+    def attacker(self) -> Node:
+        """
+        The actual logon principal we are acting as.
+        Only valid after _resolve_actor() has been called (i.e. inside exploit()).
+        """
+        if self._resolution is None or not self._resolution.ok:
+            # fallback to raw edge source before resolution runs
+            # this is only safe for display purposes
+            return self.edge.start
+        return self._resolution.principal
+
+    def _resolve_actor(self, creds: dict) -> PrincipalResolution:
+        """
+        Resolve edge.start into a usable logon principal.
+        Called once per exploit(), result is cached.
+        """
+        if self._resolution is not None:
+            return self._resolution
+
+        resolver = ActingPrincipalResolver()
+        self._resolution = resolver.resolve(self.edge.start, creds)
+        return self._resolution
 
     def _prepare_creds(self, creds: dict) -> dict:
-        attacker_sam = self.attacker.sam()
-        merged = {**creds, "username": attacker_sam}
-        try:
-            merged = enrich_creds(merged)
-        except (KeyError, ValueError):
+        """
+        Resolve the acting principal from edge.start, then build enriched creds.
+        Raises HopFailedError if no usable actor is found.
+        """
+        resolution = self._resolve_actor(creds)
+
+        if not resolution.ok:
             raise HopFailedError(
                 self.edge,
-                f"No credentials available for attacker '{attacker_sam}'. "
-                f"Cannot exploit {self.edge.kind.value}."
+                f"Cannot resolve a logon principal from '{self.edge.start.label}': "
+                f"{resolution.reason}"
             )
 
         if BACKEND.name == "none":
@@ -43,7 +72,9 @@ class BloodyADBase(ExploitStrategy, ABC):
                 "No backend available. Run: pip install bloodyAD "
                 "(or on Windows: wsl pip install bloodyAD)"
             )
-        return merged
+        
+        # resolution.creds is already enriched by the resolver
+        return resolution.creds
 
     def _run_bloodyad(self, creds: dict, subcommand: list[str], label: str, cwd: str = None ) -> str:
         print_check(
