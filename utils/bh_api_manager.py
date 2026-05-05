@@ -101,7 +101,7 @@ class BHAPIManager:
             edges.append(Edge(
                 source_node = source_node,
                 goal_node   = target_node,
-                kind        = EdgeKind.WRITE_OWNER
+                kind        = EdgeKind(item["edge"]["label"])
             ))
 
         return edges
