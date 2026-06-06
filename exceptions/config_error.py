@@ -10,6 +10,6 @@ class ConfigError(AutoPwnException):
     def __init__(self, field:str, reason:str):
         self.field = field
         self.reason = reason
-        super.__init__(
+        super().__init__(
             f"Configuration error on '{field}: {reason}'"
         )
