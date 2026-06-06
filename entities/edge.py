@@ -21,4 +21,4 @@ class Edge:
         return self.goal_node
     
     def __str__(self):
-            return f"{self.source} --[{self.kind}]--> {self.target}"
+            return f"{self.start} --[{self.kind}]--> {self.target}"
