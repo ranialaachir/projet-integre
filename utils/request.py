@@ -4,7 +4,6 @@ import requests
 from entities.client import Client
 from .auth import make_auth_header
 import json
-import hashlib
 
 class BHRequest:
 	def __init__(self, client:Client):
@@ -40,8 +39,7 @@ class BHRequest:
 		try:
 			response = requests.post(f"{self.client.base_url}{path}",
 	 				           headers={**headers, "Content-Type": "application/json"},
-						   data=body_bytes,
-						   timeout=30
+						       data=body_bytes
 						)
 			response.raise_for_status()
 			return response.json()

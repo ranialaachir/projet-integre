@@ -4,8 +4,8 @@ from enum import Enum
 
 class EdgeKind(Enum):
 	MEMBER_OF           = "MemberOf"     # state edge
-	HAS_SESSION         = "HasSession"
-	ADMIN_TO            = "AdminTo"
+	HAS_SESSION         = "HasSession"   # No
+	ADMIN_TO            = "AdminTo"      # No
 	GENERIC_WRITE       = "GenericWrite" # 11
 	GENERIC_ALL         = "GenericAll"   # 12 GenericWrite + other stuff
 	"""
@@ -31,6 +31,7 @@ class EdgeKind(Enum):
 	TRUSTED_BY          = "TrustedBy"
 	FORCE_CHANGE_PW     = "ForceChangePassword"
 	READ_LAPS_PASS      = "ReadLAPSPassword"
+	# WriteOwnerRaw, AllExtendedRights, AddKeyCredentialLink,OwnsRaw, AddSelf, GPLink
 
 """
 Some strategies are terminal (they directly give you credentials or 

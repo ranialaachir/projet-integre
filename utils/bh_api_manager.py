@@ -3,6 +3,7 @@ from entities import edge_kind
 
 from .request import BHRequest
 
+from .request import BHRequest
 
 class BHAPIManager:
     def __init__(self, bh_request: BHRequest):
