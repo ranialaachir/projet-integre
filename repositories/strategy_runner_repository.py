@@ -7,7 +7,7 @@ from exceptions.hop_failed_error import HopFailedError
 from services.parse_objects import parse_dict_node, parse_list_edge
 from .base_repository import BaseRepository, CREDS
 from .acting_principal_repository import ActingPrincipalResolver, PrincipalResolution
-
+from references.cred_store import add_secret
 
 @dataclass
 class StrategyTestResult:
@@ -134,6 +134,13 @@ class StrategyRunnerRepository(BaseRepository):
             # ── Exploit ──────────────────────────────────────────────────────
             try:
                 entry.result = strategy.exploit(resolution.creds)
+                # In run_single_strategy, after entry.result = strategy.exploit(...)
+                if entry.result and entry.result.success and entry.result.gained_access:
+                    cred = entry.result.gained_access
+                    if cred.password:
+                        add_secret(cred.username, cred.password)
+                    elif cred.hash:
+                        add_secret(cred.username, cred.hash)
             except HopFailedError as exc:
                 entry.error = str(exc)
             except Exception as exc:

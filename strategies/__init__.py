@@ -6,6 +6,9 @@ from .write_dacl import WriteDaclStrategy
 from .write_owner import WriteOwnerStrategy
 from .owns import OwnsStrategy
 from .read_laps import ReadLAPSStrategy
+from .admin_to import AdminToStrategy
+from .has_session import HasSessionStrategy
+from .dc_sync import DCSyncStrategy
 
 # (strategy_class, cypher_relationship, source_label, target_label)
 STRATEGY_REGISTRY = [
@@ -17,4 +20,7 @@ STRATEGY_REGISTRY = [
     (WriteOwnerStrategy,            "WriteOwner",           "Base",  "Base"),
     (OwnsStrategy,                  "Owns",                 "Base",  "Base"),
     (ReadLAPSStrategy,              "ReadLAPSPassword",     "Base",  "Computer"),
+    (AdminToStrategy,   "AdminTo",    "Base", "Computer"),
+    (HasSessionStrategy,"HasSession", "Computer", "User"),
+    (DCSyncStrategy,    "DCSync",     "Base", "Domain"),
 ]

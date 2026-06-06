@@ -1,6 +1,6 @@
 # references/cred_store.py
-# v2 : User will give what is controlled/owned and their secret and it will be added to a file
-# or maybe it will be updated automatically
+# references/cred_store.py addition
+import json, os
 
 from __future__ import annotations
 

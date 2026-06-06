@@ -1,0 +1,253 @@
+Phase 1
+Step 1
+Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+- Download the binary, set it up as a systemd service, start it automatically
+>>> Creating ollama user...
+[sudo] password for queen:
+>>> Adding ollama user to render group...
+>>> Adding ollama user to video group...
+>>> Adding current user to ollama group...
+>>> Creating ollama systemd service...
+>>> Enabling and starting ollama service...
+Created symlink /etc/systemd/system/default.target.wants/ollama.service → /etc/systemd/system/ollama.service.
+>>> The Ollama API is now available at 127.0.0.1:11434.
+>>> Install complete. Run "ollama" from the command line.
+WARNING: No NVIDIA/AMD GPU detected. Ollama will run in CPU-only mode.
+It takes around 30 minutes
+systemctl status ollama
+- verify it is running
+active (running)
+if not running
+sudo systemctl start ollama
+sudo systemctl enable ollama   # makes it start on boot
+
+1.2
+ollama pull llama3
+Now pull LLaMA 3 (8B parameters — this downloads ~4.7GB. You'll see a progress bar. Once done, confirm it's there:he right size for a CPU-only i7):
+ollama list
+It gets pulled like docker somewhat...
+pulling manifest
+pulling 6a0746a1ec1a: 12% 
+pulling 3f8eb4da87fa: 100% | 485 B
+verifying sha256 digest
+writing manifest
+success
+1.3 Verification
+Before writing any Python, make sure it actually works:
+ollama run llama3 "Explain what a transformer is in 2 sentences."
+A transformer is an electrical device that transfers energy from one
+circuit to another through electromagnetic induction, without using
+any mechanical components or moving parts. It consists of two coils of
+wire wrapped around a common magnetic core, which allows the flow of
+alternating current (AC) to be stepped up or down in voltage while
+maintaining efficiency and minimizing energy loss.
+You should get a response streaming back in your terminal within a few seconds. To open an interactive chat session instead:
+ollama run llama3
+>>> Hello, how are you?
+I'm just a language model, I don't have feelings or emotions like
+humans do. However, I'm functioning properly and ready to help you
+with any questions or tasks you may have! It's great to chat with you.
+Is there something specific you'd like to talk about or ask for
+assistance with?
+
+>>> /bye
+Verify the API
+curl http://localhost:11434/api/generate \
+  -d '{
+    "model": "llama3",
+    "prompt": "Say hello.",
+    "stream": false
+  }'
+{"model":"llama3","created_at":"2026-05-16T14:27:28.062694423Z","response":"Hello! It's nice to meet you. Is there something I can help you with or would you like to chat?","done":true,"done_reason":"stop","context":[128006,882,128007,271,46864,24748,13,128009,128006,78191,128007,271,9906,0,1102,596,6555,311,3449,499,13,2209,1070,2555,358,649,1520,499,449,477,1053,499,1093,311,6369,30],"total_duration":3373121860,"load_duration":114745895,"prompt_eval_count":13,"prompt_eval_duration":334984907,"eval_count":25,"eval_duration":2902905921}
+You should get back a JSON response with a response field. This is exactly the endpoint your Python scripts will hit in the next task.
+Step 4 Make it accessible on local network
+sudo systemctl edit ollama
+/etc/systemd/system/ollama.service.d/.#override.confe154c06920a0079e *
+### Editing /etc/systemd/system/ollama.service.d/override.conf
+### Anything between here and the comment below will become the contents of>
+
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0"
+
+### Edits below this comment will be discarded
+
+
+### /etc/systemd/system/ollama.service
+# [Unit]
+# Description=Ollama Service
+# After=network-online.target
+#
+# [Service]
+# ExecStart=/usr/local/bin/ollama serve
+# User=ollama
+# Group=ollama
+# Restart=always
+# RestartSec=3
+# Environment="PATH=/home/queen/.local/bin:/usr/local/sbin:/usr/local/bin:/>
+#
+# [Install]
+# WantedBy=default.target
+
+Save, then restart:
+bashsudo systemctl daemon-reload
+sudo systemctl restart ollama
+Now you can hit it from your laptop at http://your_homelab_ip:11434.
+ curl http://192.168.1.115:11434/api/generate   -d '{
+    "model": "llama3",
+    "prompt": "Say hello.",
+    "stream": false
+  }'
+{"model":"llama3","created_at":"2026-05-16T14:33:04.721388451Z","response":"Hello! It's nice to meet you. Is there something I can help you with, or would you like to chat?","done":true,"done_reason":"stop","context":[128006,882,128007,271,46864,24748,13,128009,128006,78191,128007,271,9906,0,1102,596,6555,311,3449,499,13,2209,1070,2555,358,649,1520,499,449,11,477,1053,499,1093,311,6369,30],"total_duration":6947275597,"load_duration":3169781105,"prompt_eval_count":13,"prompt_eval_duration":640499461,"eval_count":26,"eval_duration":3115253177}
+
+Quick reference — useful Ollama commands
+ollama list              # see downloaded models
+ollama pull mistral      # download another model
+ollama rm llama3         # delete a model (free up disk)
+ollama ps                # see what's currently loaded in memory
+ollama show llama3       # model details (size, parameters, family)
+
+}queen@home:~$ ollama list
+NAME             ID              SIZE      MODIFIED
+llama3:latest    365c0bd3c000    4.7 GB    11 minutes ago
+queen@home:~$ ollama show llama3
+  Model
+    architecture        llama
+    parameters          8.0B
+    context length      8192
+    embedding length    4096
+    quantization        Q4_0
+
+  Capabilities
+    completion
+
+  Parameters
+    num_keep    24
+    stop        "<|start_header_id|>"
+    stop        "<|end_header_id|>"
+    stop        "<|eot_id|>"
+
+  License
+    META LLAMA 3 COMMUNITY LICENSE AGREEMENT
+    Meta Llama 3 Version Release Date: April 18, 2024
+    ...
+
+- "parameters": 8.0B — 8 billion weights loaded on your machine
+- "quantization": Q4_0 — the weights are compressed to 4-bit integers (that's why it's 4.7GB instead of ~16GB)
+- "context length": 8192 — your model can hold ~8k tokens in its "working memory" at once
+- "eval_count": 26 — it generated 26 tokens for that "Say hello" response
+- total_duration: 6.9s, eval_duration: 3.1s — useful for benchmarking speed later
+
+Step 3: Your first Python Script
+queen@home:~$ mkdir ~/homelab-ai && cd ~/homelab-ai
+queen@home:~/homelab-ai$ python3 -m venv venv
+queen@home:~/homelab-ai$ source venv/bin/activate
+(venv) queen@home:~/homelab-ai$ pip install requests
+Collecting requests
+  Downloading requests-2.34.2-py3-none-any.whl.metadata (4.8 kB)
+Collecting charset_normalizer<4,>=2 (from requests)
+  Using cached charset_normalizer-3.4.7-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (40 kB)
+Collecting idna<4,>=2.5 (from requests)
+  Downloading idna-3.15-py3-none-any.whl.metadata (7.7 kB)
+Collecting urllib3<3,>=1.26 (from requests)
+  Downloading urllib3-2.7.0-py3-none-any.whl.metadata (6.9 kB)
+Collecting certifi>=2023.5.7 (from requests)
+  Downloading certifi-2026.4.22-py3-none-any.whl.metadata (2.5 kB)
+Downloading requests-2.34.2-py3-none-any.whl (73 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 73.1/73.1 kB 895.8 kB/s eta 0:00:00
+Downloading certifi-2026.4.22-py3-none-any.whl (135 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 135.7/135.7 kB 946.4 kB/s eta 0:00:00
+Using cached charset_normalizer-3.4.7-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (216 kB)
+Downloading idna-3.15-py3-none-any.whl (72 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 72.3/72.3 kB 562.1 kB/s eta 0:00:00
+Downloading urllib3-2.7.0-py3-none-any.whl (131 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 131.1/131.1 kB 750.2 kB/s eta 0:00:00
+Installing collected packages: urllib3, idna, charset_normalizer, certifi, requests
+Successfully installed certifi-2026.4.22 charset_normalizer-3.4.7 idna-3.15 requests-2.34.2 urllib3-2.7.0
+(venv) queen@home:~/homelab-ai$
+(venv) queen@home:~/homelab-ai$ pip install dotenv
+Collecting dotenv
+  Downloading dotenv-0.9.9-py2.py3-none-any.whl.metadata (279 bytes)
+Collecting python-dotenv (from dotenv)
+  Downloading python_dotenv-1.2.2-py3-none-any.whl.metadata (27 kB)
+Downloading dotenv-0.9.9-py2.py3-none-any.whl (1.9 kB)
+Downloading python_dotenv-1.2.2-py3-none-any.whl (22 kB)
+Installing collected packages: python-dotenv, dotenv
+Successfully installed dotenv-0.9.9 python-dotenv-1.2.2
+
+ python ask.py
+=== Basic prompt ===
+The capital of Morocco is Rabat.
+
+=== With system prompt ===
+"Oh joy, let me just put aside my thrilling lesson on plate tectonics and tell you it's Rabat, duh."
+
+The pattern going forward
+This is the Git workflow you'll use for every feature in this project:
+main (stable, always working)
+  └── feature/ollama-client     ← build here
+  └── feature/fastapi-backend   ← Phase 2
+  └── feature/pdf-parser        ← Phase 2
+  └── feature/scaffold-generator ← Phase 3
+Rule of thumb: one branch per feature, one commit per meaningful step. Don't wait until everything is perfect to commit — commit when something new works, even if small. Recruiters who look at your history will see real incremental progress, which is far more convincing than one giant commit.
+
+
+Can you write a .md for this Phase 1 about what we know, the commands we used, steps we took, the output, the branches too and logic behind the project. and what source venv is for, etc. A good recap of everything so I can always go back it it. and also what this is for :  pip freeze > requirements.txt
+fastapi — the web framework. You write Python functions, it turns them into HTTP endpoints. Much faster and cleaner than Flask.
+uvicorn — the server that actually runs FastAPI. FastAPI is just the framework; uvicorn is what listens for incoming HTTP requests. Think of it like: FastAPI is the restaurant, uvicorn is the building it sits in.
+pymupdf — reads PDF files and extracts their text content. Despite the name it has nothing to do with music — "mu" is the Greek letter μ, shorthand for micro.
+python-multipart — allows FastAPI to receive file uploads. Without this, POST /upload-pdf would reject any file you send it. Also the imports
+
+Also talk about the structure of the project, how the project is run (commands), etc. Don't forget anything related to the project phase 1.
+
+
+curl -X POST http://192.168.1.116:9000/summarize \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Morocco is a country in North Africa. Its capital is Rabat, though its largest city is Casablanca. It borders the Atlantic Ocean and Mediterranean Sea, and has a diverse landscape including mountains, desert, and coastline."}'
+
+
+curl -X POST http://192.168.1.116:9000/summarize \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Morocco is a country in North Africa. Its capital is Rabat, though its largest city is Casablanca. It borders the Atlantic Ocean and Mediterranean Sea, and has a diverse landscape including mountains, desert, and coastline.", "style": "bullet_points"}'
+
+http://192.168.1.115:9000/docs
+Homelab AI Assistant
+ 0.1.0 
+OAS 3.1
+/openapi.json
+Self-hosted AI API powered by Ollama + LLaMA 3
+
+default
+
+
+POST
+/summarize
+Summarize
+
+
+GET
+/health
+Health
+
+(venv) queen@home:~/homelab-ai$ nano backend/main.py
+(venv) queen@home:~/homelab-ai$ uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+INFO:     Will watch for changes in these directories: ['/home/queen/homelab-ai']
+ERROR:    [Errno 98] Address already in use
+(venv) queen@home:~/homelab-ai$ uvicorn backend.main:app --reload --host 0.0.0.0 --port 9000
+INFO:     Will watch for changes in these directories: ['/home/queen/homelab-ai']
+INFO:     Uvicorn running on http://0.0.0.0:9000 (Press CTRL+C to quit)
+INFO:     Started reloader process [1222985] using StatReload
+INFO:     Started server process [1222987]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     192.168.1.126:2982 - "GET /health HTTP/1.1" 200 OK
+INFO:     192.168.1.116:56598 - "POST /summarize HTTP/1.1" 200 OK
+INFO:     192.168.1.116:55500 - "POST /summarize HTTP/1.1" 200 OK
+INFO:     192.168.1.126:17819 - "GET /docs HTTP/1.1" 200 OK
+INFO:     192.168.1.126:17819 - "GET /openapi.json HTTP/1.1" 200 OK
+^CINFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [1222987]
+INFO:     Stopping reloader process [1222985]
+(venv) queen@home:~/homelab-ai$
