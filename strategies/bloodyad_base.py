@@ -14,10 +14,10 @@ from utils.platform import BACKEND
 from utils.runner import run_tool
 from utils.bloodyad import bloodyad_cmd
 from repositories.acting_principal_repository import ActingPrincipalResolver, PrincipalResolution
+from repositories.graph_mutation_repository import GraphMutationRepository
 
 # HARDCODED_PASSWORD = "iamthekingoftheworld"
 HARDCODED_PASSWORD = "AutoPwn1344!"
-
 
 @dataclass
 class BloodyADBase(ExploitStrategy, ABC):
@@ -125,7 +125,6 @@ class BloodyADBase(ExploitStrategy, ABC):
         return output
 
     def exploit(self, creds: dict) -> ExploitResult:
-        # resolve / validate creds first
         creds = self._prepare_creds(creds)
 
         dispatch = getattr(self, "_DISPATCH", None)
@@ -143,25 +142,49 @@ class BloodyADBase(ExploitStrategy, ABC):
                 f"— no known technique",
             )
 
-        # Single technique — run directly
+        # ── Run technique(s) ─────────────────────────────────────────────────
+        result = None
+
         if len(techniques) == 1:
             name, action = techniques[0]
             print_info(f"Using {name}...")
-            return action(self, creds)
+            result = action(self, creds)
+        else:
+            errors = []
+            for name, action in techniques:
+                try:
+                    print_info(f"Trying {name}...")
+                    result = action(self, creds)
+                    break
+                except HopFailedError as exc:
+                    first_line = str(exc).splitlines()[0]
+                    print_warning(f"{name} failed: {first_line}")
+                    errors.append(f"{name}: {first_line}")
 
-        # Multiple techniques — fallback chain
-        errors = []
-        for name, action in techniques:
-            try:
-                print_info(f"Trying {name}...")
-                return action(self, creds)
-            except HopFailedError as exc:
-                first_line = str(exc).splitlines()[0]
-                print_warning(f"{name} failed: {first_line}")
-                errors.append(f"{name}: {first_line}")
+            if result is None:
+                raise HopFailedError(
+                    self.edge,
+                    f"{self.edge.kind.value}: all techniques failed on "
+                    f"{self.target.kind.value}\n" + "\n".join(errors),
+                )
 
-        raise HopFailedError(
-            self.edge,
-            f"{self.edge.kind.value}: all techniques failed on "
-            f"{self.target.kind.value}\n" + "\n".join(errors),
-        )
+        # ── Post-exploit graph sync ───────────────────────────────────────────
+        if result and result.success:
+            self._sync_mutation(result)
+
+        return result
+
+    def _sync_mutation(self, result: ExploitResult) -> None:
+        """Reflect successful exploitation in the BH graph."""
+        from entities.edge_kind import EdgeKind
+        try:
+            mutation_repo = GraphMutationRepository(sync_to_bh=True)
+            if self.edge.kind == EdgeKind.ADD_MEMBER:
+                mutation_repo.add_membership(self.attacker, self.target)
+            elif self.edge.kind in (EdgeKind.OWNS, EdgeKind.WRITE_OWNER):
+                mutation_repo.record_owner_change(self.target, self.attacker)
+            elif self.edge.kind in (EdgeKind.WRITE_DACL, EdgeKind.GENERIC_ALL):
+                mutation_repo.record_acl_grant(self.target, self.attacker, self.edge.kind.value)
+            mutation_repo.record_credential_pivot(self.attacker, self.target, result.technique)
+        except Exception as e:
+            print_warning(f"Graph sync failed (non-fatal): {e}")

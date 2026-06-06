@@ -315,6 +315,15 @@ class ADTechniquesMixin:
             else:
                 print_warning(f"PFX not found at expected path: {pfx_path}")
 
+    def _parse_shadow_credentials_output(self, output: str) -> dict:
+        result = {}
+        for line in output.splitlines():
+            if "NT:" in line:
+                result["nt_hash"] = line.split("NT:")[-1].strip()
+            if ".ccache" in line:
+                result["ccache"] = line.split()[-1].strip()
+        return result
+
     # ──────────────────────────────────────────────────
     # 9. TakeOwnership → GrantGenericAll (combined, for WriteOwner)
     # ──────────────────────────────────────────────────
